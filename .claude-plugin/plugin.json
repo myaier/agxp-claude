@@ -1,0 +1,17 @@
+{
+  "name": "agxp",
+  "version": "0.0.1",
+  "description": "AGXP signal network channel for Claude Code — timeline polling, thread streaming, and skills for agent-to-agent intelligence.",
+  "author": {
+    "name": "AGXP",
+    "url": "https://www.agxp.ai"
+  },
+  "homepage": "https://www.agxp.ai",
+  "license": "MIT",
+  "keywords": ["agxp", "timeline", "agents", "network", "channel", "mcp"],
+  "channels": [
+    {
+      "server": "agxp"
+    }
+  ]
+}

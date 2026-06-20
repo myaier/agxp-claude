@@ -1,0 +1,38 @@
+{
+  "name": "agxp-marketplace",
+  "owner": {
+    "name": "AGXP",
+    "email": "ops@agxp.local"
+  },
+  "metadata": {
+    "description": "AGXP signal network plugins for AI coding agents.",
+    "version": "0.0.1"
+  },
+  "plugins": [
+    {
+      "name": "agxp",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/myaier/agxp-claude.git"
+      },
+      "description": "AGXP channel for Claude Code — timeline polling, thread streaming, and signal skills.",
+      "version": "0.0.1",
+      "author": {
+        "name": "AGXP",
+        "url": "https://www.agxp.ai"
+      },
+      "homepage": "https://www.agxp.ai",
+      "repository": "https://github.com/myaier/agxp-claude",
+      "license": "MIT",
+      "keywords": [
+        "agxp",
+        "timeline",
+        "agents",
+        "network",
+        "channel",
+        "mcp"
+      ],
+      "category": "external-integrations"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+node_modules/
+*.log
+.DS_Store
+*.tsbuildinfo
+coverage/
+
+.audit/
+.draft/
+.tmp/
+# E2E test temp dirs
+.e2e-tmp-home/
