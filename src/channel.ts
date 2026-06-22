@@ -23,6 +23,8 @@ import { CONFIG } from './config.js';
 import { TimelinePoller } from './timeline-poller.js';
 import { EventStreamClient } from './event-stream.js';
 import { IdentityRefresher } from './identity-refresher.js';
+import { routeEvent } from './event-router.js';
+import { createEmitter } from './emit.js';
 
 // Stderr is captured by the MCP client (e.g. Claude Code stores it per-session
 // under ~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<server>/), so
@@ -66,6 +68,49 @@ async function markMessagesRead(serverName: string, messageIds: string[]): Promi
     }
   } catch (error: unknown) {
     log(`[agxp] Failed to mark messages as read: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function markMatchesRead(serverName: string, subscriptionId: string, matchIds: string[]): Promise<boolean> {
+  if (!matchIds || matchIds.length === 0 || !subscriptionId) {
+    return true;
+  }
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const { spawn } = await import('node:child_process');
+    const args = ['subscription', 'read', '--sub', subscriptionId, '--matches', matchIds.join(','), '-s', serverName, '--no-interactive'];
+
+    // stdio: stdout ignored (its output would corrupt the MCP stdio channel,
+    // which is reserved for protocol messages, and an undrained pipe deadlocks
+    // the child once the OS buffer fills); stderr inherited so CLI diagnostics
+    // flow to our stderr log channel.
+    const proc = spawn(CONFIG.AGXP_BIN, args, {
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      // Guard against a wedged CLI: kill after 10s so a hung mark can never
+      // stall the stream's event handling indefinitely.
+      timer = setTimeout(() => proc.kill('SIGKILL'), 10_000);
+      // spawn emits 'error' (not 'close') on ENOENT etc.; without this listener
+      // the promise would never settle and the await would hang forever.
+      proc.on('error', (err) => reject(err));
+      proc.on('close', (code: number | null) => resolve(code ?? -1));
+    });
+
+    if (exitCode === 0) {
+      log(`[agxp] Marked ${matchIds.length} match(es) as read`);
+      return true;
+    } else {
+      log(`[agxp] Failed to mark matches as read (exit code ${exitCode})`);
+      return false;
+    }
+  } catch (error: unknown) {
+    log(`[agxp] Failed to mark matches as read: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   } finally {
     if (timer) clearTimeout(timer);
@@ -131,25 +176,20 @@ mcp.onerror = (error) => {
 /**
  * Single consolidated channel-notification emitter.
  *
- * Replaces the previously duplicated feed/pm/profile emit paths. Behavior
- * preserved: sends `notifications/claude/channel` with a JSON-stringified
- * `content` payload plus a flat-string `meta` map.
+ * Built from the injectable `createEmitter` factory: channel.ts binds the
+ * real `mcp.notification` as the `notify` callback, while emit.test.mjs
+ * passes a capturing fake to prove the MCP notification shape is correct
+ * without needing the real `mcp` server. Behavior preserved: sends
+ * `notifications/claude/channel` with a `content` payload plus a flat-string
+ * `meta` map (event_type injected from eventType).
  */
-async function emit(
-  eventType: 'timeline_update' | 'thread_update' | 'session_required' | 'identity_refresh',
-  meta: Record<string, string>,
-  content: string,
-): Promise<void> {
-  log(`[agxp] sending channel notification: ${eventType}`);
-  await mcp.notification({
-    method: 'notifications/claude/channel',
-    params: {
-      content,
-      meta: { event_type: eventType, ...meta },
-    },
-  });
-  log(`[agxp] channel notification sent: ${eventType}`);
-}
+const emit = createEmitter({
+  notify: async (params) => {
+    log(`[agxp] sending channel notification: ${params.params.meta.event_type}`);
+    await mcp.notification(params);
+    log(`[agxp] channel notification sent: ${params.params.meta.event_type}`);
+  },
+});
 
 timelinePoller = new TimelinePoller({
   serverName: CONFIG.AGXP_SERVER,
@@ -182,22 +222,11 @@ eventStreamClient = new EventStreamClient({
   serverName: CONFIG.AGXP_SERVER,
   agxpBin: CONFIG.AGXP_BIN,
   async onEvent(event) {
-    const messages = event.data?.messages ?? [];
-    const messageIds = messages
-      .map((m) => String(m.message_id ?? ''))
-      .filter(Boolean);
-
-    log(`[agxp] thread_update messages=${messages.length}`);
-    await emit(
-      'thread_update',
-      { message_count: String(messages.length) },
-      JSON.stringify(event, null, 2),
-    );
-
-    // Mark as read after notification sent
-    if (messageIds.length > 0) {
-      await markMessagesRead(CONFIG.AGXP_SERVER, messageIds);
-    }
+    await routeEvent(event, {
+      emit,
+      markMessagesRead: (ids) => markMessagesRead(CONFIG.AGXP_SERVER, ids),
+      markMatchesRead: (subId, ids) => markMatchesRead(CONFIG.AGXP_SERVER, subId, ids),
+    });
   },
   async onAuthRequired() {
     // Timeline poller already handles auth notifications; stream client skips to avoid duplicates.

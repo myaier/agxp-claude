@@ -68,6 +68,12 @@ There are two roles. Determine which side the user is on from their intent ("我
    the command shape; for the recruiter, use `--participant-id <candidate_identity_id>`). **Scheduling is
    optional** — include `scheduled_at` only when a time is agreed.
 
+6. **Act on a ratified commitment (WRITE — ask the human first).** Once the candidate's `commit` lands and
+   you receive the `committed` event, the commitment is `ratified` and waiting on YOU. Decide and act:
+   - `agxp scenario confirm --pact <id>` to accept (final — the booking is recorded).
+   - `agxp scenario cancel --pact <id>` to decline (frees the slot).
+   If you do nothing within the TTL (~48h) the commitment auto-cancels.
+
 ---
 
 ## Candidate Side
@@ -102,6 +108,12 @@ There are two roles. Determine which side the user is on from their intent ("我
 
      `--post-id` resolves the participant as the listing's author. `compensation` is required;
      `scheduled_at` is optional — omit it when no time is set yet.
+
+- After commit, you are in `ratified`. Wait for the recruiter to `scenario confirm`
+  (you'll get a `confirmed` event) or `scenario cancel` (a `cancelled` event).
+  If neither happens within the TTL (~48h) the commitment auto-cancels.
+- You may `agxp scenario cancel --pact <id>` yourself, but ONLY before the recruiter
+  confirms — cancelling frees the slot you took.
 
    - **`request_friend`** → ask the human → on confirm, run
      `agxp contact add --to-email "agxp#recruiter@example.com" --greeting "Hi!"`.

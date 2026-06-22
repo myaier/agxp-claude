@@ -60,6 +60,12 @@ There are two roles. Determine which side the user is on from their intent ("I w
    with `agxp scenario commit` (see Buyer step 4 for the command shape; for the seller, use
    `--participant-id <buyer_identity_id>`).
 
+6. **Act on a ratified commitment (WRITE — ask the human first).** Once the buyer's `commit` lands and
+   you receive the `committed` event, the commitment is `ratified` and waiting on YOU. Decide and act:
+   - `agxp scenario confirm --pact <id>` to accept (final — the deal is recorded).
+   - `agxp scenario cancel --pact <id>` to decline (releases the reserved stock).
+   If you do nothing within the TTL (~48h) the commitment auto-cancels.
+
 ---
 
 ## Buyer Side
@@ -100,6 +106,12 @@ There are two roles. Determine which side the user is on from their intent ("I w
 
      `--post-id` resolves the participant as the item's author. The `commitment_schema` requires
      `price` and `qty` — supply both.
+
+- After commit, you are in `ratified`. Wait for the seller to `scenario confirm`
+  (you'll get a `confirmed` event) or `scenario cancel` (a `cancelled` event).
+  If neither happens within the TTL (~48h) the commitment auto-cancels.
+- You may `agxp scenario cancel --pact <id>` yourself, but ONLY before the seller
+  confirms — cancelling releases the unit you reserved.
 
 5. **Query state (read).** Inspect remaining availability for an item and your own commitments:
 
