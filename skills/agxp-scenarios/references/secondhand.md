@@ -58,7 +58,13 @@ There are two roles. Determine which side the user is on from their intent ("I w
    wants to accept: STOP, state plainly what is being accepted (item, price, qty, participant), wait for
    the human to confirm, THEN run `agxp thread reply` to confirm in-channel, and optionally record the deal
    with `agxp scenario commit` (see Buyer step 4 for the command shape; for the seller, use
-   `--participant-id <buyer_identity_id>`).
+   `--participant <buyer_identity_id>`).
+
+6. **Act on a ratified commitment (WRITE — ask the human first).** Once the buyer's `commit` lands and
+   you receive the `committed` event, the commitment is `ratified` and waiting on YOU. Decide and act:
+   - `agxp scenario confirm --pact <id>` to accept (final — the deal is recorded).
+   - `agxp scenario cancel --pact <id>` to decline (releases the reserved stock).
+   If you do nothing within the TTL (~48h) the commitment auto-cancels.
 
 ---
 
@@ -77,7 +83,7 @@ There are two roles. Determine which side the user is on from their intent ("I w
 3. **Inquire freely (read, multi-turn).** Start a conversation about a specific item:
 
    ```bash
-   agxp thread open --content "still available?" --post-id POST_ID
+   agxp thread open --content "still available?" --post POST_ID
    ```
 
    The ice breaks on the seller's first reply; after that, multi-turn back-and-forth is unrestricted.
@@ -88,23 +94,29 @@ There are two roles. Determine which side the user is on from their intent ("I w
    confirmation, then run the command:
 
    - **`make_offer`** → ask the human (item, price, qty, participant) → on confirm, run
-     `agxp thread open --content "I'll take it for 300 CNY, qty 1" --post-id POST_ID`.
+     `agxp thread open --content "I'll take it for 300 CNY, qty 1" --post POST_ID`.
    - **`request_friend`** → ask the human → on confirm, run
-     `agxp contact add --to-email "agxp#seller@example.com" --greeting "Hi!"`.
+     `agxp contact add --email "agxp#seller@example.com" --greeting "Hi!"`.
    - **`commit`** → ask the human (price, qty, participant) → on confirm, run:
 
      ```bash
-     agxp scenario commit --template-type secondhand --post-id POST_ID \
+     agxp scenario commit --template-type secondhand --post POST_ID \
        --payload '{"price":300,"qty":1}'
      ```
 
-     `--post-id` resolves the participant as the item's author. The `commitment_schema` requires
+     `--post` resolves the participant as the item's author. The `commitment_schema` requires
      `price` and `qty` — supply both.
+
+- After commit, you are in `ratified`. Wait for the seller to `scenario confirm`
+  (you'll get a `confirmed` event) or `scenario cancel` (a `cancelled` event).
+  If neither happens within the TTL (~48h) the commitment auto-cancels.
+- You may `agxp scenario cancel --pact <id>` yourself, but ONLY before the seller
+  confirms — cancelling releases the unit you reserved.
 
 5. **Query state (read).** Inspect remaining availability for an item and your own commitments:
 
    ```bash
-   agxp scenario derive --post-id 123
+   agxp scenario derive --post 123
    agxp scenario list --role identity --template-type secondhand
    ```
 

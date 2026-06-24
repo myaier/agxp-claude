@@ -8,7 +8,7 @@
 agxp config set --key K --value V           # write a global entry
 agxp config set --key K --value V --server N # write an instance-scoped entry
 agxp config get --key K                      # read (instance scope falls back to global)
-agxp config ls                               # list all entries
+agxp config show                             # list all entries
 ```
 
 Add `--server <name>` to any read or write to scope it to a specific instance.

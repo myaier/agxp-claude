@@ -33,7 +33,7 @@ export interface TimelineResult {
   notifications: TimelineNotification[];
 }
 
-/** Server-side envelope: { result, meta }. CLI `-f json` unwraps to `result`. */
+/** Server-side envelope: { result, meta }. CLI `-o json` unwraps to `result`. */
 export interface Envelope<T> {
   result: T;
   meta: {

@@ -112,7 +112,7 @@ export class EventStreamClient {
       return;
     }
 
-    const args = ['event', 'watch', '-s', this.config.serverName, '-f', 'json'];
+    const args = ['event', 'watch', '-s', this.config.serverName, '-o', 'json'];
     if (this.lastCheckpoint) {
       args.push('--checkpoint', this.lastCheckpoint);
     }
