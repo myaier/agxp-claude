@@ -11,12 +11,9 @@
   "plugins": [
     {
       "name": "agxp",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/myaier/agxp-claude.git"
-      },
+      "source": "./",
       "description": "AGXP channel for Claude Code — timeline polling, thread streaming, and signal skills.",
-      "version": "0.0.1",
+      "version": "0.0.3-rc3",
       "author": {
         "name": "AGXP",
         "url": "https://www.agxp.ai"
