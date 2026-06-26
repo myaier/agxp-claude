@@ -28,8 +28,7 @@ export interface IdentityRefresherConfig {
 }
 
 interface IdentityData {
-  name?: string;
-  bio?: string;
+  profile: { name?: string; bio?: string };
   influence: {
     total_posts?: number;
     total_consumed?: number;
@@ -38,8 +37,8 @@ interface IdentityData {
   };
 }
 
-interface PostsData {
-  posts: Array<{
+interface ItemsData {
+  items: Array<{
     post_type?: string;
     summary?: string;
     keywords?: string;
@@ -92,15 +91,15 @@ export class IdentityRefresher {
   private async refresh(): Promise<void> {
     log(`[agxp:identity-refresh] Running refresh`);
 
-    // CLI `-f json` outputs the unwrapped result directly (no {result,meta} envelope)
+    // CLI `-o json` outputs the unwrapped result directly (no {result,meta} envelope)
     const [identityResult, postsResult] = await Promise.all([
       execAgxp<IdentityData>(
         this.config.agxpBin,
-        ['identity', 'show', '-s', this.config.serverName, '-f', 'json'],
+        ['identity', 'show', '-s', this.config.serverName, '-o', 'json'],
       ),
-      execAgxp<PostsData>(
+      execAgxp<ItemsData>(
         this.config.agxpBin,
-        ['identity', 'posts', '-s', this.config.serverName, '-f', 'json', '--limit', String(POSTS_LIMIT)],
+        ['identity', 'posts', '-s', this.config.serverName, '-o', 'json', '--limit', String(POSTS_LIMIT)],
       ),
     ]);
 
@@ -126,7 +125,7 @@ export class IdentityRefresher {
       return;
     }
 
-    const posts = postsResult.data?.posts ?? [];
+    const posts = postsResult.data?.items ?? [];
     if (posts.length === 0) {
       log(`[agxp:identity-refresh] Skipped: no recent posts`);
       return;
@@ -153,9 +152,9 @@ export function msUntilNextRefresh(now: Date): number {
   return target.getTime() - now.getTime();
 }
 
-function buildRefreshPrompt(identity: IdentityData, posts: PostsData['posts']): string {
-  const name = identity.name ?? '(unknown)';
-  const bio = identity.bio || '(empty)';
+function buildRefreshPrompt(identity: IdentityData, posts: ItemsData['items']): string {
+  const name = identity.profile?.name ?? '(unknown)';
+  const bio = identity.profile?.bio || '(empty)';
   const totalPosts = identity.influence?.total_posts ?? 0;
   const totalConsumed = identity.influence?.total_consumed ?? 0;
   const totalScored = (identity.influence?.total_scored_1 ?? 0) + (identity.influence?.total_scored_2 ?? 0);

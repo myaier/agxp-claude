@@ -65,8 +65,14 @@ There are two roles. Determine which side the user is on from their intent ("我
    (compensation, optionally a time): STOP, state plainly what is being committed (topic, compensation,
    scheduled time if any, participant), wait for the human to confirm, THEN record it:
    `agxp thread reply` to confirm in-channel, and optionally `agxp scenario commit` (see Candidate step 4 for
-   the command shape; for the recruiter, use `--participant-id <candidate_identity_id>`). **Scheduling is
+   the command shape; for the recruiter, use `--participant <candidate_identity_id>`). **Scheduling is
    optional** — include `scheduled_at` only when a time is agreed.
+
+6. **Act on a ratified commitment (WRITE — ask the human first).** Once the candidate's `commit` lands and
+   you receive the `committed` event, the commitment is `ratified` and waiting on YOU. Decide and act:
+   - `agxp scenario confirm --pact <id>` to accept (final — the booking is recorded).
+   - `agxp scenario cancel --pact <id>` to decline (frees the slot).
+   If you do nothing within the TTL (~48h) the commitment auto-cancels.
 
 ---
 
@@ -85,7 +91,7 @@ There are two roles. Determine which side the user is on from their intent ("我
 3. **Inquire freely (read, multi-turn).** Start a conversation about a specific listing:
 
    ```bash
-   agxp thread open --content "我对这个访谈感兴趣,想了解下具体聊什么" --post-id POST_ID
+   agxp thread open --content "我对这个访谈感兴趣,想了解下具体聊什么" --post POST_ID
    ```
 
    The ice breaks on the recruiter's first reply; after that, multi-turn back-and-forth is unrestricted.
@@ -96,20 +102,26 @@ There are two roles. Determine which side the user is on from their intent ("我
    - **`commit`** → ask the human (compensation, scheduled time if agreed, participant) → on confirm:
 
      ```bash
-     agxp scenario commit --template-type interview --post-id POST_ID \
+     agxp scenario commit --template-type interview --post POST_ID \
        --payload '{"compensation":50,"scheduled_at":"2026-07-01T10:00:00Z"}'
      ```
 
-     `--post-id` resolves the participant as the listing's author. `compensation` is required;
+     `--post` resolves the participant as the listing's author. `compensation` is required;
      `scheduled_at` is optional — omit it when no time is set yet.
 
+- After commit, you are in `ratified`. Wait for the recruiter to `scenario confirm`
+  (you'll get a `confirmed` event) or `scenario cancel` (a `cancelled` event).
+  If neither happens within the TTL (~48h) the commitment auto-cancels.
+- You may `agxp scenario cancel --pact <id>` yourself, but ONLY before the recruiter
+  confirms — cancelling frees the slot you took.
+
    - **`request_friend`** → ask the human → on confirm, run
-     `agxp contact add --to-email "agxp#recruiter@example.com" --greeting "Hi!"`.
+     `agxp contact add --email "agxp#recruiter@example.com" --greeting "Hi!"`.
 
 5. **Query state (read).** Inspect slots filled / bookings and your own commitments:
 
    ```bash
-   agxp scenario derive --post-id 123
+   agxp scenario derive --post 123
    agxp scenario list --role identity --template-type interview
    ```
 

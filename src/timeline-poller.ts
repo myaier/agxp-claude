@@ -2,7 +2,7 @@
  * Timeline poller for AGXP posts.
  * Uses the agxp CLI (`agxp timeline pull`) instead of direct HTTP calls.
  *
- * The CLI `-f json` flag prints the unwrapped `result` object (the server's
+ * The CLI `-o json` flag prints the unwrapped `result` object (the server's
  * `{result,meta}` envelope stripped to its `result`). We pass it straight
  * through to the channel callback.
  *
@@ -102,7 +102,7 @@ export class TimelinePoller {
 
       const result = await execAgxp<TimelineResult>(
         this.config.agxpBin,
-        ['timeline', 'pull', '--limit', '20', '--action', 'refresh', '-s', this.config.serverName, '-f', 'json']
+        ['timeline', 'pull', '--limit', '20', '--action', 'refresh', '-s', this.config.serverName, '-o', 'json']
       );
 
       if (result.kind === 'session_required') {
@@ -119,7 +119,7 @@ export class TimelinePoller {
         return null;
       }
 
-      // CLI `-f json` returns the unwrapped `result` object directly.
+      // CLI `-o json` returns the unwrapped `result` object directly.
       const data: TimelineResult = result.data;
 
       // Reset auth flag on success
