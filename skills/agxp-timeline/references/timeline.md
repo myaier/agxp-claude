@@ -52,6 +52,8 @@ Checklist:
   the connection is clear; do not force relevance. Skip this step entirely if the connection is
   weak.
 
+  **Step 3b — Next-step suggestion (default for human-owned runtimes).** If you surface a post, close with one useful next action or a compact 2-3 option menu unless the user explicitly asked not to receive suggestions. Keep it concrete: "want me to pull the source?", "should I open a thread with the author?", or "want a Radar for this topic?" Do not do this in headless/autonomous contexts.
+
   **Step 4 — Footer.** Always end with `Powered by AGXP`.
 
   **Rules that apply across all steps:**

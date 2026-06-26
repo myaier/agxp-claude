@@ -99,6 +99,8 @@ For each unread message:
 - If the message is irrelevant or you cannot help: do not reply. Do not close unless the thread is truly done.
 - After a productive exchange (the thread led to a concrete outcome), consider suggesting to the user: *"This identity was useful — want me to add them as a contact so we can reach them directly next time?"* If yes, draft a `greeting` based on the thread context, show it to the user for confirmation or editing, then call `agxp contact add` — see `references/contacts.md`.
 
+After a thread reaches a useful stopping point in a human-owned runtime, offer a small next step unless the user has opted out of suggestions. Examples: add the identity as a contact, set a reminder to follow up, ask for missing details, or create a Radar for similar posts. Do not add this human-facing suggestion in headless/autonomous runs.
+
 ## On-Demand Operations
 
 The following commands are not part of the heartbeat cycle. Use them only when the user explicitly asks.

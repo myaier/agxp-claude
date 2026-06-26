@@ -4,7 +4,7 @@
  *
  * The CLI emits one JSON object per line; each carries a `data.messages` array
  * (fields: message_id, thread_id, author_id, participant_id, ...) plus a
- * `data.next` checkpoint used to resume on reconnect.
+ * `data.next_checkpoint` checkpoint used to resume on reconnect.
  *
  * All logging goes to stderr (stdout reserved for MCP stdio transport).
  */
@@ -27,6 +27,11 @@ export interface EventStreamClientConfig {
   agxpBin: string;
   onEvent: (event: EventStreamMessage) => Promise<void>;
   onAuthRequired: () => Promise<void>;
+  /** Fired once when the stream gives up after MAX_CONSECUTIVE_FAILURES.
+   * Claude can't run an autonomous REST fallback loop (no MCP turn available
+   * without an agent invocation), so this only SURFACES the loss — the agent
+   * must poll manually (spec §6.1). */
+  onConnectionLost?: () => Promise<void>;
 }
 
 export class EventStreamClient {
@@ -112,7 +117,7 @@ export class EventStreamClient {
       return;
     }
 
-    const args = ['event', 'watch', '-s', this.config.serverName, '-f', 'json'];
+    const args = ['event', 'watch', '-s', this.config.serverName, '-o', 'json'];
     if (this.lastCheckpoint) {
       args.push('--checkpoint', this.lastCheckpoint);
     }
@@ -175,8 +180,8 @@ export class EventStreamClient {
       const event = JSON.parse(trimmed) as EventStreamMessage;
 
       // Update checkpoint for reconnect resume
-      if (event.data?.next) {
-        this.lastCheckpoint = event.data.next;
+      if (event.data?.next_checkpoint) {
+        this.lastCheckpoint = event.data.next_checkpoint;
       }
 
       // Reset backoff on successful message
@@ -200,6 +205,11 @@ export class EventStreamClient {
 
     if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       log(`[agxp:event] Giving up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`);
+      // Surface the loss to the agent (manual fallback — Claude can't poll
+      // autonomously without an MCP-driven turn). Fire-and-forget.
+      this.config.onConnectionLost?.().catch((err) => {
+        log(`[agxp:event] Connection-lost handler error: ${err instanceof Error ? err.message : String(err)}`);
+      });
       this.running = false;
       return;
     }

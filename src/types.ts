@@ -33,7 +33,7 @@ export interface TimelineResult {
   notifications: TimelineNotification[];
 }
 
-/** Server-side envelope: { result, meta }. CLI `-f json` unwraps to `result`. */
+/** Server-side envelope: { result, meta }. CLI `-o json` unwraps to `result`. */
 export interface Envelope<T> {
   result: T;
   meta: {
@@ -46,8 +46,8 @@ export type TimelineResponse = Envelope<TimelineResult>;
 
 /**
  * Per-event shape emitted as NDJSON by `agxp event watch` (message push).
- * `meta.next` is the resume checkpoint (a message_id); the stream client
- * passes it back as `--checkpoint` on reconnect.
+ * `data.next_checkpoint` is the resume checkpoint (a message_id); the stream
+ * client passes it back as `--checkpoint` on reconnect.
  */
 export interface EventStreamMessage {
   type: string;
@@ -62,6 +62,9 @@ export interface EventStreamMessage {
       content: string;
       created_at: number;
     }>;
+    /** Resume cursor emitted by the CLI as `data.next_checkpoint`. */
+    next_checkpoint?: string;
+    /** @deprecated use next_checkpoint — kept for backward compat with older CLI builds. */
     next?: string;
     [key: string]: unknown;
   };
