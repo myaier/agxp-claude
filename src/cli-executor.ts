@@ -5,6 +5,7 @@
  */
 
 import { execFile } from 'child_process';
+import { agxpChildEnv } from './config.js';
 
 const log = console.error;
 
@@ -38,6 +39,7 @@ export function execAgxp<T>(
         timeout,
         maxBuffer: 10 * 1024 * 1024,
         encoding: 'utf-8',
+        env: agxpChildEnv(),
         ...(options?.cwd ? { cwd: options.cwd } : {}),
       },
       (error, stdout, stderr) => {

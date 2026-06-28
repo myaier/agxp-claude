@@ -22,7 +22,9 @@ export type ChannelEventType =
   | 'contact_request'
   | 'contact_event'
   | 'backfill_summary'
-  | 'connection_lost';
+  | 'connection_lost'
+  | 'plugin_update_required'
+  | 'plugin_update_available';
 
 export function createEmitter(deps: EmitterDeps) {
   return async function emit(

@@ -8,40 +8,72 @@ async function testAsync(name, fn) {
   catch (err) { failed++; console.log(`  ✗ ${name}\n    ${err.message}`); }
 }
 
-console.log('\nevent-stream checkpoint tests\n');
+console.log('\nevent-stream forwarder tests\n');
 
 // The EventStreamClient constructor does NOT spawn — only start() does — so we
 // can build it with agxpBin: 'true' (a no-op binary) and drive the private
 // handleLine directly. We never call start(), so no real child is spawned.
-function makeClient() {
+function makeClient({ onEvent } = {}) {
   return new EventStreamClient({
     serverName: 'test-server',
     agxpBin: 'true',
-    onEvent: async () => {},
+    onEvent: onEvent ?? (async () => {}),
     onAuthRequired: async () => {},
   });
 }
 
-await testAsync('handleLine reads data.next_checkpoint into lastCheckpoint', async () => {
-  const client = makeClient();
+await testAsync('handleLine forwards a rendered Block to onEvent', async () => {
+  let received = null;
+  const client = makeClient({ onEvent: async (block) => { received = block; } });
   try {
-    assert.equal(client.getLastCheckpoint(), null);
-    client.handleLine(JSON.stringify({ type: 'thread_update', data: { next_checkpoint: '999' } }));
-    assert.equal(client.getLastCheckpoint(), '999');
+    client.handleLine(JSON.stringify({
+      type: 'subscription_match',
+      agent_block: 'card text',
+      meta: { tier: 'high' },
+      ack_token: 'tok',
+    }));
+    // handleLine fires onEvent asynchronously; give it a tick to resolve.
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(received?.type, 'subscription_match');
+    assert.equal(received?.agent_block, 'card text');
+    assert.equal(received?.ack_token, 'tok');
   } finally {
     await client.stop();
   }
 });
 
-await testAsync('handleLine does NOT read the stale data.next field', async () => {
-  const client = makeClient();
+await testAsync('handleLine tolerates a Block without agent_block/meta/ack_token', async () => {
+  let received = null;
+  const client = makeClient({ onEvent: async (block) => { received = block; } });
   try {
-    // seed a known checkpoint
-    client.handleLine(JSON.stringify({ type: 'thread_update', data: { next_checkpoint: '999' } }));
-    assert.equal(client.getLastCheckpoint(), '999');
-    // a frame carrying the OLD field name must not overwrite it
-    client.handleLine(JSON.stringify({ type: 'thread_update', data: { next: '888' } }));
-    assert.equal(client.getLastCheckpoint(), '999');
+    client.handleLine(JSON.stringify({ type: 'contact_event' }));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(received?.type, 'contact_event');
+    assert.equal(received?.agent_block, undefined);
+  } finally {
+    await client.stop();
+  }
+});
+
+await testAsync('handleLine ignores blank lines', async () => {
+  let count = 0;
+  const client = makeClient({ onEvent: async () => { count++; } });
+  try {
+    client.handleLine('   ');
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(count, 0);
+  } finally {
+    await client.stop();
+  }
+});
+
+await testAsync('handleLine logs (not throws) on unparseable line', async () => {
+  let count = 0;
+  const client = makeClient({ onEvent: async () => { count++; } });
+  try {
+    client.handleLine('not-json');
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(count, 0, 'a bad line must not reach onEvent');
   } finally {
     await client.stop();
   }
@@ -86,7 +118,10 @@ await testAsync('scheduleRestart does NOT fire onConnectionLost below the thresh
   }
 });
 
-await testAsync('structural: src/event-stream.ts uses next_checkpoint, not data.next', async () => {
+// Structural: confirms the P1 spawn format swap (json → agent) and that the
+// shell no longer extracts a checkpoint from each frame (the CLI owns both the
+// reconnect loop and the checkpoint cursor now).
+await testAsync('structural: event-stream.ts spawns with -o agent and no longer reads a per-line checkpoint', async () => {
   const { readFileSync } = await import('node:fs');
   const { dirname, join } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
@@ -94,9 +129,9 @@ await testAsync('structural: src/event-stream.ts uses next_checkpoint, not data.
     join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'event-stream.ts'),
     'utf8',
   );
-  assert.ok(src.includes('next_checkpoint'), 'expected next_checkpoint in source');
-  // The old buggy property access must be gone.
-  assert.ok(!/event\.data\?\.next\b/.test(src), 'stale event.data?.next access still present');
+  assert.ok(src.includes("'-o', 'agent'"), "expected spawn args to include '-o', 'agent'");
+  assert.ok(!src.includes("'-o', 'json'"), "old '-o json' spawn must be gone");
+  assert.ok(!/lastCheckpoint/.test(src), 'per-line checkpoint tracking must be removed (CLI owns it now)');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

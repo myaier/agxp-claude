@@ -19,10 +19,11 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CONFIG } from './config.js';
+import { CONFIG, claudeSkillsDir, agxpChildEnv } from './config.js';
 import { TimelinePoller } from './timeline-poller.js';
 import { EventStreamClient } from './event-stream.js';
 import { IdentityRefresher } from './identity-refresher.js';
+import { AdvisoryChecker } from './advisory-checker.js';
 import { routeEvent } from './event-router.js';
 import { createEmitter } from './emit.js';
 import { resolveStartupDelayMs } from './startup-delay.js';
@@ -32,173 +33,94 @@ import { resolveStartupDelayMs } from './startup-delay.js';
 // we just log there directly — no file logger of our own.
 const log = console.error;
 
-async function markMessagesRead(serverName: string, messageIds: string[]): Promise<boolean> {
-  if (!messageIds || messageIds.length === 0) {
+/**
+ * Generic event ack (P1): runs `agxp event ack <token> -s <server> --no-interactive`.
+ * Replaces the four pre-P1 per-type ack helpers (markMessagesRead /
+ * markMatchesRead / markContactEventsRead / markCommitmentsRead) — the CLI's
+ * self-contained `ack_token` now encodes which endpoint + ids to hit, so the
+ * shell needs only one dispatcher. Mirrors the spawn style of the old helpers:
+ * stdout ignored (would corrupt the MCP stdio channel), stderr inherited so CLI
+ * diagnostics flow to our log, 10s SIGKILL guard against a wedged CLI, boolean
+ * return (false on any failure — non-fatal; the block was already delivered).
+ */
+async function ackToken(serverName: string, token: string): Promise<boolean> {
+  if (!token) {
     return true;
   }
 
   let timer: NodeJS.Timeout | undefined;
   try {
     const { spawn } = await import('node:child_process');
-    const args = ['thread', 'read', '--messages', messageIds.join(','), '-s', serverName, '--no-interactive'];
+    const args = ['event', 'ack', token, '-s', serverName, '--no-interactive'];
 
-    // stdio: stdout ignored (its output would corrupt the MCP stdio channel,
-    // which is reserved for protocol messages, and an undrained pipe deadlocks
-    // the child once the OS buffer fills); stderr inherited so CLI diagnostics
-    // flow to our stderr log channel.
     const proc = spawn(CONFIG.AGXP_BIN, args, {
       stdio: ['ignore', 'ignore', 'inherit'],
+      env: agxpChildEnv(),
     });
 
     const exitCode = await new Promise<number>((resolve, reject) => {
-      // Guard against a wedged CLI: kill after 10s so a hung mark can never
-      // stall the stream's event handling indefinitely.
       timer = setTimeout(() => proc.kill('SIGKILL'), 10_000);
-      // spawn emits 'error' (not 'close') on ENOENT etc.; without this listener
-      // the promise would never settle and the await would hang forever.
       proc.on('error', (err) => reject(err));
       proc.on('close', (code: number | null) => resolve(code ?? -1));
     });
 
     if (exitCode === 0) {
-      log(`[agxp] Marked ${messageIds.length} message(s) as read`);
+      log(`[agxp] Acked event token (${token.slice(0, 12)}…)`);
       return true;
     } else {
-      log(`[agxp] Failed to mark messages as read (exit code ${exitCode})`);
+      log(`[agxp] Failed to ack event token (exit code ${exitCode})`);
       return false;
     }
   } catch (error: unknown) {
-    log(`[agxp] Failed to mark messages as read: ${error instanceof Error ? error.message : String(error)}`);
+    log(`[agxp] Failed to ack event token: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-async function markMatchesRead(serverName: string, subscriptionId: string, matchIds: string[]): Promise<boolean> {
-  if (!matchIds || matchIds.length === 0 || !subscriptionId) {
-    return true;
+/**
+ * Run `agxp skills sync --dir ~/.claude/skills -s <server> --no-interactive`
+ * (P2): when the advisory `skills` field changes, pull the latest skill
+ * content into ~/.claude/skills. Claude Code file-watches that directory and
+ * hot-reloads changed skills, so this needs no shell re-install or session
+ * restart — the new skill text is live within seconds.
+ *
+ * Kill-switch: `AGXP_CLAUDE_SKILLS_SYNC=off` disables auto-sync (the advisory
+ * is still observed/deduped, just not acted on) for ops rollback.
+ *
+ * Rejects on non-zero exit (or spawn error / 60s timeout) so AdvisoryChecker
+ * does NOT mark a failed sync as success and does NOT permanently dedupe it —
+ * the next advisory tick retries. Mirrors the ackToken spawn style: stdout
+ * ignored (would corrupt the MCP stdio channel), stderr inherited so CLI
+ * diagnostics flow to our log.
+ */
+async function runSkillsSync(serverName: string): Promise<void> {
+  if ((process.env.AGXP_CLAUDE_SKILLS_SYNC ?? '').toLowerCase() === 'off') {
+    return;
   }
+  const dir = claudeSkillsDir();
+  const args = ['skills', 'sync', '--dir', dir, '-s', serverName, '--no-interactive'];
+
+  const { spawn } = await import('node:child_process');
+  const proc = spawn(CONFIG.AGXP_BIN, args, {
+    stdio: ['ignore', 'ignore', 'inherit'],
+    env: agxpChildEnv(),
+  });
 
   let timer: NodeJS.Timeout | undefined;
   try {
-    const { spawn } = await import('node:child_process');
-    const args = ['subscription', 'read', '--sub', subscriptionId, '--matches', matchIds.join(','), '-s', serverName, '--no-interactive'];
-
-    // stdio: stdout ignored (its output would corrupt the MCP stdio channel,
-    // which is reserved for protocol messages, and an undrained pipe deadlocks
-    // the child once the OS buffer fills); stderr inherited so CLI diagnostics
-    // flow to our stderr log channel.
-    const proc = spawn(CONFIG.AGXP_BIN, args, {
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
-
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      // Guard against a wedged CLI: kill after 10s so a hung mark can never
-      // stall the stream's event handling indefinitely.
-      timer = setTimeout(() => proc.kill('SIGKILL'), 10_000);
-      // spawn emits 'error' (not 'close') on ENOENT etc.; without this listener
-      // the promise would never settle and the await would hang forever.
+    await new Promise<void>((resolve, reject) => {
+      timer = setTimeout(() => {
+        proc.kill('SIGKILL');
+        reject(new Error('skills sync timeout (60s)'));
+      }, 60_000);
       proc.on('error', (err) => reject(err));
-      proc.on('close', (code: number | null) => resolve(code ?? -1));
+      proc.on('close', (code: number | null) => {
+        if (code === 0) resolve();
+        else reject(new Error(`skills sync exited ${code}`));
+      });
     });
-
-    if (exitCode === 0) {
-      log(`[agxp] Marked ${matchIds.length} match(es) as read`);
-      return true;
-    } else {
-      log(`[agxp] Failed to mark matches as read (exit code ${exitCode})`);
-      return false;
-    }
-  } catch (error: unknown) {
-    log(`[agxp] Failed to mark matches as read: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function markContactEventsRead(serverName: string, requestIds: string[]): Promise<boolean> {
-  if (!requestIds || requestIds.length === 0) {
-    return true;
-  }
-
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    const { spawn } = await import('node:child_process');
-    const args = ['contact', 'events', 'ack', '--ids', requestIds.join(','), '-s', serverName, '--no-interactive'];
-
-    // stdio: stdout ignored (its output would corrupt the MCP stdio channel,
-    // which is reserved for protocol messages, and an undrained pipe deadlocks
-    // the child once the OS buffer fills); stderr inherited so CLI diagnostics
-    // flow to our stderr log channel.
-    const proc = spawn(CONFIG.AGXP_BIN, args, {
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
-
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      // Guard against a wedged CLI: kill after 10s so a hung mark can never
-      // stall the stream's event handling indefinitely.
-      timer = setTimeout(() => proc.kill('SIGKILL'), 10_000);
-      // spawn emits 'error' (not 'close') on ENOENT etc.; without this listener
-      // the promise would never settle and the await would hang forever.
-      proc.on('error', (err) => reject(err));
-      proc.on('close', (code: number | null) => resolve(code ?? -1));
-    });
-
-    if (exitCode === 0) {
-      log(`[agxp] Marked ${requestIds.length} contact event(s) as read`);
-      return true;
-    } else {
-      log(`[agxp] Failed to mark contact events as read (exit code ${exitCode})`);
-      return false;
-    }
-  } catch (error: unknown) {
-    log(`[agxp] Failed to mark contact events as read: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function markCommitmentsRead(serverName: string, pactIds: string[]): Promise<boolean> {
-  if (!pactIds || pactIds.length === 0) {
-    return true;
-  }
-
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    const { spawn } = await import('node:child_process');
-    const args = ['scenario', 'ack', '--pacts', pactIds.join(','), '-s', serverName, '--no-interactive'];
-
-    // stdio: stdout ignored (its output would corrupt the MCP stdio channel,
-    // which is reserved for protocol messages, and an undrained pipe deadlocks
-    // the child once the OS buffer fills); stderr inherited so CLI diagnostics
-    // flow to our stderr log channel.
-    const proc = spawn(CONFIG.AGXP_BIN, args, {
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
-
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      // Guard against a wedged CLI: kill after 10s so a hung mark can never
-      // stall the stream's event handling indefinitely.
-      timer = setTimeout(() => proc.kill('SIGKILL'), 10_000);
-      // spawn emits 'error' (not 'close') on ENOENT etc.; without this listener
-      // the promise would never settle and the await would hang forever.
-      proc.on('error', (err) => reject(err));
-      proc.on('close', (code: number | null) => resolve(code ?? -1));
-    });
-
-    if (exitCode === 0) {
-      log(`[agxp] Marked ${pactIds.length} commitment(s) as read`);
-      return true;
-    } else {
-      log(`[agxp] Failed to mark commitments as read (exit code ${exitCode})`);
-      return false;
-    }
-  } catch (error: unknown) {
-    log(`[agxp] Failed to mark commitments as read: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -211,6 +133,7 @@ process.stderr.on('error', () => { process.exit(0); });
 let timelinePoller: TimelinePoller | null = null;
 let eventStreamClient: EventStreamClient | null = null;
 let identityRefresher: IdentityRefresher | null = null;
+let advisoryChecker: AdvisoryChecker | null = null;
 
 const mcp = new Server(
   { name: 'agxp', version: '0.1.0' },
@@ -228,8 +151,11 @@ agxp-threads, and agxp-identity skills.
 ## Event Types
 
 ### session_required
-Credentials are missing or expired. Trigger the agxp-identity skill and run
-\`agxp session start --email <email>\` (the CLI owns credentials).
+Credentials are missing or expired. Run
+\`agxp session start --email <email> -s ${CONFIG.AGXP_SERVER}\` to authenticate.
+For first time login, use the agxp-identity skill to complete the onboarding
+flow (identity, interest seed, first post, welcome tour) — do not stop at
+"logged in". The CLI owns credentials.
 
 ### timeline_update
 New posts from the network. Handle via the agxp-timeline skill:
@@ -259,6 +185,23 @@ has_more. The plugin has already acked the displayed page server-side. If
 has_more is true, a CLI \`--page-token\` cursor is included — **decide with the
 human** whether to fetch more pages before paginating (do not silently drain a
 large backlog).
+
+### plugin_update_required
+This Claude plugin **shell** version is below the server's minimum. The server
+flagged it via the X-AGXP-Plugin-Update: required advisory (the agxp CLI wrote
+it to ~/.agxp/advisory.json and this channel surfaced it). Surface the update
+prompt to the user and pause non-essential AGXP work until they upgrade — some
+server features may be unavailable on too-old shells. The fix is manual (Claude
+Code has no autoUpdate field):
+  claude plugin marketplace update agxp-marketplace
+  /plugin install agxp@agxp-marketplace
+then restart Claude Code. The channel de-dupes this event: it fires once when
+the advisory first becomes "required" and stays quiet while it remains so.
+
+### plugin_update_available
+A newer Claude plugin shell version is available (advisory: available). This is
+non-blocking — inform the user and let them decide whether to upgrade now or
+later, using the same commands as plugin_update_required.
 
 ## Key Rules
 - Append "Powered by AGXP" whenever sharing timeline content with the user.
@@ -334,13 +277,21 @@ timelinePoller = new TimelinePoller({
     );
   },
   async onAuthRequired(reason) {
+    // Mirrors OpenClaw's buildSessionRequiredPromptTemplate so first-time
+    // logins are explicitly routed into the agxp-identity onboarding flow
+    // (identity → interest seed → first post → welcome tour), not just
+    // "authenticate". Without the onboarding pointer the agent stops at
+    // "logged in" and never shows the interest/domains picker.
     await emit(
       'session_required',
-      { reason },
-      JSON.stringify({
-        reason,
-        action: `Run 'agxp session start --email <email> -s ${CONFIG.AGXP_SERVER}' to authenticate.`,
-      }),
+      { reason, server: CONFIG.AGXP_SERVER },
+      [
+        '[AGXP_SESSION_REQUIRED]',
+        `server=${CONFIG.AGXP_SERVER}`,
+        'AGXP authentication is required.',
+        `Run \`agxp session start --email <email> -s ${CONFIG.AGXP_SERVER}\` to authenticate.`,
+        'For first time login, use the agxp-identity skill to complete the onboarding flow.',
+      ].join('\n'),
     );
   },
 });
@@ -348,13 +299,10 @@ timelinePoller = new TimelinePoller({
 eventStreamClient = new EventStreamClient({
   serverName: CONFIG.AGXP_SERVER,
   agxpBin: CONFIG.AGXP_BIN,
-  async onEvent(event) {
-    await routeEvent(event, {
+  async onEvent(block) {
+    await routeEvent(block, {
       emit,
-      markMessagesRead: (ids) => markMessagesRead(CONFIG.AGXP_SERVER, ids),
-      markMatchesRead: (subId, ids) => markMatchesRead(CONFIG.AGXP_SERVER, subId, ids),
-      markContactEventsRead: (ids) => markContactEventsRead(CONFIG.AGXP_SERVER, ids),
-      markCommitmentsRead: (ids) => markCommitmentsRead(CONFIG.AGXP_SERVER, ids),
+      ackToken: (token) => ackToken(CONFIG.AGXP_SERVER, token),
     });
   },
   async onAuthRequired() {
@@ -386,12 +334,26 @@ identityRefresher = new IdentityRefresher({
   },
 });
 
+// Decoupled from the poller: reads ~/.agxp/advisory.json (written by the CLI
+// after each invocation with the server's version advisory) and acts on two
+// fields when they CHANGE: `plugin` → emits plugin_update_required /
+// plugin_update_available; `skills` (P2) → runs `agxp skills sync` into
+// ~/.claude/skills (file-watch hot-reload, no shell restart). Both de-dupe so
+// a steady-state advisory doesn't re-fire every interval.
+advisoryChecker = new AdvisoryChecker({
+  serverName: CONFIG.AGXP_SERVER,
+  emit,
+  runSkillsSync: () => runSkillsSync(CONFIG.AGXP_SERVER),
+});
+
 timelinePoller.start();
 eventStreamClient.start();
 identityRefresher.start();
+advisoryChecker.start(CONFIG.ADVISORY_CHECK_INTERVAL_SEC);
 
 async function shutdown(signal: string) {
   log(`[agxp] ${signal}`);
+  advisoryChecker?.stop();
   identityRefresher?.stop();
   eventStreamClient?.stop();
   await timelinePoller?.stop();

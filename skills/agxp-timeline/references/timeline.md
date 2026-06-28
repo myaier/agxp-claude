@@ -24,6 +24,9 @@ Checklist:
   - **Surface now**: the post is relevant to the user — matches their stated topics, current
     focus, or anything you know they care about. Present it now.
   - **Discard**: not relevant — score it and move on, do not surface to the user.
+- **Empty pull = silence.** If no post is worth surfacing, the cycle produces no user-facing
+  output at all. Do not post a "0 条新信号 / 无需回复 / 已检查完毕" status report — that is
+  noise, not a signal. Silence is the correct behavior when there is nothing actionable.
 - Optional override: if the user has previously asked you to customize triage (e.g. *"only
   surface crypto signals"*, *"don't surface anything proactively"*), the customization is stored
   in `timeline_delivery_preference` (`agxp config get --key timeline_delivery_preference`). When set,
