@@ -2,16 +2,23 @@
  * Stream client for AGXP thread/event updates.
  * Manages a long-running `agxp event watch` child process that outputs NDJSON.
  *
- * The CLI emits one JSON object per line; each carries a `data.messages` array
- * (fields: message_id, thread_id, author_id, participant_id, ...) plus a
- * `data.next_checkpoint` checkpoint used to resume on reconnect.
+ * P1 (event-render-CLI): the child is spawned with `-o agent`, so each NDJSON
+ * line is a RENDERED Block `{type, agent_block?, meta?, ack_token?}` — the CLI
+ * owns all per-type rendering + ack_token encoding. The shell is a forwarder:
+ * it passes each Block straight to `onEvent`, which (in channel.ts) emits
+ * `agent_block` to the MCP channel and, only after a successful emit, acks via
+ * `agxp event ack <token>`. The CLI also owns the reconnect checkpoint (it
+ * tracks `data.next_checkpoint` from the raw server frame internally and
+ * resumes via `?checkpoint=` on its own reconnect loop), so the shell no longer
+ * extracts or re-passes a checkpoint.
  *
  * All logging goes to stderr (stdout reserved for MCP stdio transport).
  */
 
 import { spawn, ChildProcess } from 'child_process';
 import { createInterface, Interface as ReadlineInterface } from 'readline';
-import type { EventStreamMessage } from './types.js';
+import { agxpChildEnv } from './config.js';
+import type { RenderedBlock } from './event-router.js';
 
 const log = console.error;
 
@@ -25,7 +32,7 @@ const MAX_CONSECUTIVE_FAILURES = 20;
 export interface EventStreamClientConfig {
   serverName: string;
   agxpBin: string;
-  onEvent: (event: EventStreamMessage) => Promise<void>;
+  onEvent: (block: RenderedBlock) => Promise<void>;
   onAuthRequired: () => Promise<void>;
   /** Fired once when the stream gives up after MAX_CONSECUTIVE_FAILURES.
    * Claude can't run an autonomous REST fallback loop (no MCP turn available
@@ -40,7 +47,6 @@ export class EventStreamClient {
   private readline: ReadlineInterface | null = null;
   private stopping = false;
   private running = false;
-  private lastCheckpoint: string | null = null;
   private backoffMs = INITIAL_BACKOFF_MS;
   private consecutiveFailures = 0;
   private restartTimer: NodeJS.Timeout | null = null;
@@ -51,10 +57,6 @@ export class EventStreamClient {
 
   isRunning(): boolean {
     return this.running;
-  }
-
-  getLastCheckpoint(): string | null {
-    return this.lastCheckpoint;
   }
 
   start(): void {
@@ -117,15 +119,13 @@ export class EventStreamClient {
       return;
     }
 
-    const args = ['event', 'watch', '-s', this.config.serverName, '-o', 'json'];
-    if (this.lastCheckpoint) {
-      args.push('--checkpoint', this.lastCheckpoint);
-    }
+    const args = ['event', 'watch', '-s', this.config.serverName, '-o', 'agent'];
 
     log(`[agxp:event] Spawning: ${this.config.agxpBin} ${args.join(' ')}`);
 
     const child = spawn(this.config.agxpBin, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: agxpChildEnv(),
     });
     this.child = child;
 
@@ -177,18 +177,13 @@ export class EventStreamClient {
     }
 
     try {
-      const event = JSON.parse(trimmed) as EventStreamMessage;
+      const block = JSON.parse(trimmed) as RenderedBlock;
 
-      // Update checkpoint for reconnect resume
-      if (event.data?.next_checkpoint) {
-        this.lastCheckpoint = event.data.next_checkpoint;
-      }
-
-      // Reset backoff on successful message
+      // Reset backoff on successful parse
       this.backoffMs = INITIAL_BACKOFF_MS;
       this.consecutiveFailures = 0;
 
-      this.config.onEvent(event).catch((err) => {
+      this.config.onEvent(block).catch((err) => {
         log(`[agxp:event] Event handler error: ${err instanceof Error ? err.message : String(err)}`);
       });
     } catch (err) {
