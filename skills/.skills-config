@@ -1,0 +1,9 @@
+# contracts/skills/.skills-config
+# AGXP skills bundle configuration (committed to repo).
+# Source of truth for SKILLS_VERSION — the CDN skills-bundle channel.
+# release.sh:rl_ship_skills_if_needed reads this; bump before each skills
+# release (ship is version-gated on this, mirrors apps/cli/.cli.config).
+#
+# Bundle = `tar czf bundle.tar.gz -C contracts skills` (the 5 skills under
+# contracts/skills/). Consumed by `agxp skills sync` (CLI P2-2).
+SKILLS_VERSION=0.1.2

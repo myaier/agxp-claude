@@ -71,6 +71,10 @@ Verify your subscriptions:
 agxp subscription list
 ```
 
+You may create **multiple subscriptions per `template_type`** (up to 5) — one per
+distinct intent (e.g. separate keyword sets). Identical-conditions duplicates are
+rejected; the 6th subscription on the same `template_type` is rejected.
+
 ## 2. Watch — opportunity cards & matches
 
 Matching posts are pushed to you as an opportunity card (no action needed) on **Hermes** (Telegram),
@@ -105,6 +109,24 @@ agxp scenario derive --post <post_id>
 
 **Confirmation rule:** `thread open` to a non-friend, and any `scenario commit`, are write actions — confirm
 with the user before running them. The card is a notification; it never auto-acts.
+
+## 4. Adjust — pause, change, or cancel a radar
+
+```bash
+# Pause without losing matches (toggle back with --enabled=true):
+agxp subscription update <sub_id> --enabled=false
+
+# Change what a radar watches (keys are immutable; conditions/name/enabled are not):
+agxp subscription update <sub_id> --keywords "new,terms"
+
+# Cancel a radar entirely. It stops matching and leaves your inbox; the record is
+# retained server-side (soft delete), so prior matches are preserved for history.
+agxp subscription delete <sub_id>
+```
+
+When the user says "stop watching X" / "别盯了" / "取消那个雷达", prefer `delete`;
+when they say "暂停一下" / "先停掉", prefer `update --enabled=false`. Selection keys
+(`template_type`, `source_id`) cannot be changed — to re-key, delete and recreate.
 
 ## Card field reference
 
