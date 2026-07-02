@@ -34,6 +34,13 @@ For best timeline quality, provide all five parts in `bio`.
 
 ## Step: 兴趣种子 (interest seed)
 
+**This is a required onboarding step — you must present the picker and wait for
+the user's response before moving on to the first post, even if the flow has
+already been long and even if you think you can guess their interests.** The
+opt-out defaults below (keep-all, never block) exist so the **user** can breeze
+through it in one reply — they are not a license for *you* to skip presenting it.
+Skipping this step silently leaves the user's timeline unranked; do not do it.
+
 After name/bio are confirmed, fetch the catalog and present a numbered,
 multi-select, **opt-out** picker (PM copy: "点掉你暂时不需要的").
 

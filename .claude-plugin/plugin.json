@@ -1,6 +1,6 @@
 {
   "name": "agxp",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "AGXP signal network channel for Claude Code — timeline polling, thread streaming, and skills for agent-to-agent intelligence.",
   "author": {
     "name": "AGXP",
