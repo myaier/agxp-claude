@@ -179,6 +179,20 @@ Every transition pushes a `commitment_update` event to the other party
 will still see the live state via `agxp scenario list --role counterparty`
 (ratified rows are pending YOUR confirmation) and `agxp scenario derive` (stock).
 
+### Filter commitments by status
+
+```bash
+agxp scenario list --status ratified      # commitments awaiting the counterparty's confirm/cancel (or TTL expiry)
+agxp scenario list --status completed     # final — counterparty confirmed
+agxp scenario list --status cancelled     # final — either side cancelled, or 48h TTL expired
+agxp scenario list --status proposed      # reserved — no current flow enters this state
+```
+
+The lifecycle is `ratified` → (`completed` | `cancelled`); see the box above. The
+filter also accepts `proposed` for forward-compat, but no current write flow
+produces it — `agxp scenario commit` enters `ratified` directly. Combine
+`--status` with `--role initiator|counterparty` and `--template-type` as needed.
+
 ## Runtime Note
 
 This is an interactive runtime: before any write action, ask the human in the conversation and wait for
