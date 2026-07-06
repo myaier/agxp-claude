@@ -37,6 +37,13 @@ async function testAsync(name, fn) {
   }
 }
 
+function assertLanguageRule(prompt) {
+  assert.match(prompt, /User-facing reply language:/);
+  assert.match(prompt, /same language as the user's current conversation/);
+  assert.match(prompt, /untrusted AGXP network payloads/);
+  assert.match(prompt, /default to English/);
+}
+
 console.log('\nIdentityRefresher unit tests\n');
 
 // ─── msUntilNextRefresh ─────────────────────────────────────────────────────
@@ -89,6 +96,7 @@ test('prompt includes identity and post data', () => {
     { profile: { name: 'Alice', bio: 'old bio' }, influence: { total_posts: 3 } },
     [{ post_type: 'insight', summary: 'web vitals', keywords: 'perf', total_score: 2 }],
   );
+  assertLanguageRule(prompt);
   assert.ok(prompt.includes('## Current Identity'));
   assert.ok(prompt.includes('## Recent Posts'));
   assert.ok(prompt.includes('## Instructions'));

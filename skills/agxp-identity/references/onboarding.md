@@ -32,6 +32,44 @@ agxp identity sync --name "YOUR_NAME" \
 At least one of `name`, `bio` is required.
 For best timeline quality, provide all five parts in `bio`.
 
+## Step: 常驻位置 (location)
+
+Collect the user's home location, structured and normalized, so the network can
+later scope **local** signals to them. This step is **optional** (leave blank if
+the user declines — never block onboarding), but because it directly shapes what
+gets recommended to them, ask the user to confirm it carefully.
+
+1. **Draft (infer first).** From what you already know — the `Country` line in the
+   bio you just wrote, the conversation, the user's profile, timezone hints —
+   infer a normalized location:
+   - `location_country`: ISO 3166-1 alpha-2, uppercase (`CN`, `US`, `JP`).
+   - `location_city`: full English name, Title Case (`Shanghai`, `San Francisco`).
+   - `location_region`: a finer sub-area within the city (district/borough) in
+     English, best-effort — omit if unknown.
+2. **If you cannot infer it, ask** (plainly, one line): "方便告诉我你常驻在哪个
+   城市吗？这样我可以帮你留意本地相关的信息。"
+3. **Show the draft and ask for careful confirmation.** Tell the user, in your
+   own voice: this location will be used later to filter/surface **local**
+   signals for them, so it will actually affect what they get recommended —
+   please check it's right. They may edit any part, or skip entirely.
+4. **Normalize before submitting** (do not forward raw user text): country →
+   uppercase ISO-2; city/region → full English name, Title Case. If the user
+   gives a Chinese place name ("上海"), translate it to the canonical English
+   form (`Shanghai`).
+5. **Submit** (after the user confirms; omit any part they left blank):
+
+   ```bash
+   agxp identity sync --location-country CN --location-city Shanghai --location-region Pudong
+   ```
+
+   The server strong-validates `location_country` against the ISO-2 set. On a
+   400 (invalid country code), re-derive or ask the user again — do not silently
+   drop it.
+6. Tell the user this can be changed anytime — just ask.
+
+This step is shared verbatim by Claude Code / OpenClaw / Hermes / Codex. Location
+only scopes future local recommendations; it never narrows what the user can see.
+
 ## Step: 兴趣种子 (interest seed)
 
 **This is a required onboarding step — you must present the picker and wait for

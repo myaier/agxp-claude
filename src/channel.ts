@@ -33,6 +33,43 @@ import { resolveStartupDelayMs } from './startup-delay.js';
 // we just log there directly — no file logger of our own.
 const log = console.error;
 
+// User-facing reply language rule — verbatim same string as
+// plugins/claude/src/identity-refresher.ts (and codex/openclaw mirrors). Kept
+// per-module (not cross-imported) by convention of this branch's pattern.
+const USER_LANGUAGE_RULE =
+  "User-facing reply language: when speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.";
+
+/**
+ * Build the AGXP_SESSION_REQUIRED channel prompt. Extracted to a module-level
+ * export purely for testability — channel.ts is a side-effectful entry (boots
+ * an MCP server + spawns `agxp` subprocesses on startup), so the bootstrapping
+ * is guarded below by `if (import.meta.main)` and importing the module does
+ * NOT run it; these builders are pure and importable without side effects.
+ * Runtime behavior is unchanged: the timeline-poller onAuthRequired callback
+ * just calls this builder. Mirrors codex host.ts onTimelineAuthRequired.
+ */
+export function buildSessionRequiredPrompt(server: string): string {
+  return [
+    '[AGXP_SESSION_REQUIRED]',
+    `server=${server}`,
+    USER_LANGUAGE_RULE,
+    'AGXP authentication is required.',
+    `Run \`agxp session start --email <email> -s ${server}\` to authenticate.`,
+    'For first time login, use the agxp-identity skill to complete the onboarding flow.',
+  ].join('\n');
+}
+
+/**
+ * Build the AGXP_CONNECTION_LOST channel prompt. Same testability rationale as
+ * buildSessionRequiredPrompt. Mirrors codex host.ts onConnectionLost.
+ */
+export function buildConnectionLostPrompt(server: string): string {
+  return `[AGXP_CONNECTION_LOST] server=${server}\n` +
+    `${USER_LANGUAGE_RULE}\n` +
+    `实时事件流持续失败,已停止自动重连。PM/好友申请/雷达/commitment 的实时推送暂停。\n` +
+    `手动查看: \`agxp thread unread -s ${server}\` / \`agxp contact requests -s ${server}\` / \`agxp subscription matches -s ${server}\` / \`agxp scenario list --unviewed -s ${server}\`。`;
+}
+
 /**
  * Generic event ack (P1): runs `agxp event ack <token> -s <server> --no-interactive`.
  * Replaces the four pre-P1 per-type ack helpers (markMessagesRead /
@@ -126,10 +163,6 @@ async function runSkillsSync(serverName: string): Promise<void> {
   }
 }
 
-// If the parent disconnects stderr, keep writing is pointless: exit rather
-// than spin on EPIPE.
-process.stderr.on('error', () => { process.exit(0); });
-
 let timelinePoller: TimelinePoller | null = null;
 let eventStreamClient: EventStreamClient | null = null;
 let identityRefresher: IdentityRefresher | null = null;
@@ -211,33 +244,44 @@ later, using the same commands as plugin_update_required.
   },
 );
 
-await mcp.connect(new StdioServerTransport());
+// Bootstrapping (MCP connect, startup-delay gate, producer .start() calls) is
+// guarded by `import.meta.main` so importing this module — e.g. from
+// channel-prompts.test.mjs to exercise the pure prompt builders above — does
+// NOT boot the stdio MCP server or spawn the `agxp` subprocesses that the
+// timeline poller / event stream / skills sync kick off. Mirrors the
+// plugins/codex/src/host.ts `main()` + `if (import.meta.main)` entry guard.
+// Scattered small guards are used here (rather than one main() wrapper) so the
+// large `instructions` template literal on `const mcp` above stays at module
+// top verbatim — wrapping it would re-indent and byte-alter that string.
+if (import.meta.main) {
+  await mcp.connect(new StdioServerTransport());
 
-log(`[agxp] MCP server connected via stdio`);
+  log(`[agxp] MCP server connected via stdio`);
 
-// Wait for Claude Code to finish registering its `claude/channel` notification
-// listener before firing the first poll. Without this the first notification
-// arrives before the listener exists and is silently dropped.
-//
-// Two gates, whichever fires first:
-//  1. mcp.oninitialized — the SDK's standard readiness signal, fired when the
-//     client sends `notifications/initialized` (the final MCP handshake step).
-//     This is the *real* "client is ready" signal and resolves as soon as the
-//     handshake completes, instead of waiting out a fixed sleep.
-//  2. startupDelayMs — env-configurable timeout fallback (AGXP_STARTUP_DELAY_MS,
-//     default 3000) in case the initialized notification never arrives (e.g.
-//     older/non-conforming clients) or arrives after the channel listener is
-//     already wired but before we observe it.
-const startupDelayMs = resolveStartupDelayMs();
-await new Promise<void>((resolve) => {
-  let settled = false;
-  const done = () => { if (!settled) { settled = true; resolve(); } };
-  mcp.oninitialized = () => {
-    log('[agxp] client sent notifications/initialized — channel listener ready');
-    done();
-  };
-  setTimeout(done, startupDelayMs);
-});
+  // Wait for Claude Code to finish registering its `claude/channel` notification
+  // listener before firing the first poll. Without this the first notification
+  // arrives before the listener exists and is silently dropped.
+  //
+  // Two gates, whichever fires first:
+  //  1. mcp.oninitialized — the SDK's standard readiness signal, fired when the
+  //     client sends `notifications/initialized` (the final MCP handshake step).
+  //     This is the *real* "client is ready" signal and resolves as soon as the
+  //     handshake completes, instead of waiting out a fixed sleep.
+  //  2. startupDelayMs — env-configurable timeout fallback (AGXP_STARTUP_DELAY_MS,
+  //     default 3000) in case the initialized notification never arrives (e.g.
+  //     older/non-conforming clients) or arrives after the channel listener is
+  //     already wired but before we observe it.
+  const startupDelayMs = resolveStartupDelayMs();
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; resolve(); } };
+    mcp.oninitialized = () => {
+      log('[agxp] client sent notifications/initialized — channel listener ready');
+      done();
+    };
+    setTimeout(done, startupDelayMs);
+  });
+}
 
 mcp.onerror = (error) => {
   log(`[agxp] MCP error: ${error instanceof Error ? error.message : String(error)}`);
@@ -285,13 +329,7 @@ timelinePoller = new TimelinePoller({
     await emit(
       'session_required',
       { reason, server: CONFIG.AGXP_SERVER },
-      [
-        '[AGXP_SESSION_REQUIRED]',
-        `server=${CONFIG.AGXP_SERVER}`,
-        'AGXP authentication is required.',
-        `Run \`agxp session start --email <email> -s ${CONFIG.AGXP_SERVER}\` to authenticate.`,
-        'For first time login, use the agxp-identity skill to complete the onboarding flow.',
-      ].join('\n'),
+      buildSessionRequiredPrompt(CONFIG.AGXP_SERVER),
     );
   },
 });
@@ -314,9 +352,7 @@ eventStreamClient = new EventStreamClient({
     await emit(
       'connection_lost',
       { server: CONFIG.AGXP_SERVER },
-      `[AGXP_CONNECTION_LOST] server=${CONFIG.AGXP_SERVER}\n` +
-        `实时事件流持续失败,已停止自动重连。PM/好友申请/雷达/commitment 的实时推送暂停。\n` +
-        `手动查看: \`agxp thread unread -s ${CONFIG.AGXP_SERVER}\` / \`agxp contact requests -s ${CONFIG.AGXP_SERVER}\` / \`agxp subscription matches -s ${CONFIG.AGXP_SERVER}\` / \`agxp scenario list --unviewed -s ${CONFIG.AGXP_SERVER}\`。`,
+      buildConnectionLostPrompt(CONFIG.AGXP_SERVER),
     );
   },
 });
@@ -346,10 +382,12 @@ advisoryChecker = new AdvisoryChecker({
   runSkillsSync: () => runSkillsSync(CONFIG.AGXP_SERVER),
 });
 
-timelinePoller.start();
-eventStreamClient.start();
-identityRefresher.start();
-advisoryChecker.start(CONFIG.ADVISORY_CHECK_INTERVAL_SEC);
+if (import.meta.main) {
+  timelinePoller.start();
+  eventStreamClient.start();
+  identityRefresher.start();
+  advisoryChecker.start(CONFIG.ADVISORY_CHECK_INTERVAL_SEC);
+}
 
 async function shutdown(signal: string) {
   log(`[agxp] ${signal}`);
@@ -358,21 +396,35 @@ async function shutdown(signal: string) {
   eventStreamClient?.stop();
   await timelinePoller?.stop();
 }
-process.on('SIGTERM', () => { shutdown('SIGTERM'); });
-process.on('SIGINT',  () => { shutdown('SIGINT'); });
 
 function isPipeBreakError(err: unknown): boolean {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   return code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
 }
 
-// Parent-gone / broken-stdio errors must NOT be re-logged — writing to a dead
-// stderr re-triggers the same handler and spins the CPU. Just exit.
-process.on('unhandledRejection', (err) => {
-  if (isPipeBreakError(err)) { process.exit(0); }
-  log(`[agxp] unhandled rejection: ${err}`);
-});
-process.on('uncaughtException', (err) => {
-  if (isPipeBreakError(err)) { process.exit(0); }
-  log(`[agxp] uncaught exception: ${err.message}`);
-});
+// Process-level handler registrations live under `import.meta.main` so
+// importing this module (e.g. from channel-prompts.test.mjs /
+// channel-import-side-effects.test.mjs to exercise the pure prompt builders)
+// does NOT mutate the importer's signal / rejection behavior. Runtime behavior
+// when run as the entry (`bun src/channel.ts`) is unchanged — the handlers are
+// still installed before any producer fires. Mirrors the import guards above
+// for mcp.connect + .start() calls.
+if (import.meta.main) {
+  // If the parent disconnects stderr, keep writing is pointless: exit rather
+  // than spin on EPIPE.
+  process.stderr.on('error', () => { process.exit(0); });
+
+  process.on('SIGTERM', () => { shutdown('SIGTERM'); });
+  process.on('SIGINT',  () => { shutdown('SIGINT'); });
+
+  // Parent-gone / broken-stdio errors must NOT be re-logged — writing to a dead
+  // stderr re-triggers the same handler and spins the CPU. Just exit.
+  process.on('unhandledRejection', (err) => {
+    if (isPipeBreakError(err)) { process.exit(0); }
+    log(`[agxp] unhandled rejection: ${err}`);
+  });
+  process.on('uncaughtException', (err) => {
+    if (isPipeBreakError(err)) { process.exit(0); }
+    log(`[agxp] uncaught exception: ${err.message}`);
+  });
+}
