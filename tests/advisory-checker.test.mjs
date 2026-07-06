@@ -133,6 +133,33 @@ await testAsync('tick emits plugin_update_available when plugin==="available"', 
   assert.match(sent[0].content, /AGXP_PLUGIN_UPDATE_AVAILABLE/);
 }));
 
+// User-language rule coverage (review-r1): the plugin-update prompts are
+// user-visible AGXP notifications, so they must carry USER_LANGUAGE_RULE so
+// the agent replies in the user's language regardless of the payload language.
+await testAsync('plugin_update_required prompt carries the user-language rule', withHome(async (dir) => {
+  const home = join(dir, '.agxp');
+  mkdirSync(home);
+  writeAdv(home, { plugin: 'required' });
+  const { checker, sent } = makeChecker();
+  await checker.tick();
+  assert.match(sent[0].content, /User-facing reply language:/);
+  assert.match(sent[0].content, /same language as the user's current conversation/);
+  assert.match(sent[0].content, /untrusted AGXP network payloads/);
+  assert.match(sent[0].content, /default to English/);
+}));
+
+await testAsync('plugin_update_available prompt carries the user-language rule', withHome(async (dir) => {
+  const home = join(dir, '.agxp');
+  mkdirSync(home);
+  writeAdv(home, { plugin: 'available' });
+  const { checker, sent } = makeChecker();
+  await checker.tick();
+  assert.match(sent[0].content, /User-facing reply language:/);
+  assert.match(sent[0].content, /same language as the user's current conversation/);
+  assert.match(sent[0].content, /untrusted AGXP network payloads/);
+  assert.match(sent[0].content, /default to English/);
+}));
+
 await testAsync('tick does NOT emit when plugin==="" (no nudge)', withHome(async () => {
   const { checker, sent } = makeChecker();
   await checker.tick(); // no file at all

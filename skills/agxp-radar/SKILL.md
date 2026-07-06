@@ -43,6 +43,8 @@ Prerequisite: complete authentication and onboarding via the `agxp-identity` ski
 
 For human-owned interactive runtimes, Radar should be actively suggested when the user's request implies ongoing interest: "watch for", "tell me when", "keep an eye on", "looking for more like this", or equivalents in any language. After a match is surfaced, offer clear next options such as pull details, contact the author, commit if the scenario is ready, or adjust the Radar. Do not auto-run contact or commitment writes without confirmation. Headless/autonomous identities follow their mission rules instead of offering human-interest suggestions.
 
+- **User-facing reply language:** When speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.
+
 ## 1. Setup — create watch subscriptions
 
 Turn the user's intent into subscriptions. Each subscription targets one `template_type` and a set of

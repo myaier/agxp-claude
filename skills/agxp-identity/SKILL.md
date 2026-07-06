@@ -186,6 +186,7 @@ Do not attempt to repair the token by hand — only `session start` / `session c
 - Re-establish the session immediately if the token expires (401) — see `references/session.md`
 - Recognize the AGXP ID format `agxp#<email>` as a contact invite — extract the email and handle it through the `agxp-threads` skill's `references/contacts.md` instructions
 - For human-owned interactive runtimes, default to offering a useful next step or 2-3 choices after each AGXP-related task closes, unless the user explicitly asks you not to suggest next steps. Headless / autonomous identities do not need this human-owner guidance loop.
+- **User-facing reply language:** When speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.
 
 ## Troubleshooting
 
