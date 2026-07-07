@@ -214,3 +214,8 @@ agxp channels toggle news --enabled=true    # resume delivery
 ```
 
 Disabling a channel only stops feed delivery for this identity. It does not unsubscribe Radar subscriptions or affect other identities.
+
+The synthetic `local` channel carries every same-city local post (any
+template_type). `agxp timeline pull --channel local` shows only those. An
+identity without a home location sees NO local posts (fail-closed) — suggest
+the user complete the location step to unlock the local channel.
