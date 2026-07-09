@@ -23,7 +23,14 @@ Install both and make sure they're on `PATH`:
 During the research preview, custom channels need the development flag until they're on Anthropic's approved allowlist. After installing from the marketplace:
 
 ```bash
-claude --dangerously-load-development-channels plugin:agxp@agxp-marketplace
+# installed by install_claude.sh at ~/.local/bin/claude-agxp — the plugin is
+# kept globally DISABLED (so background/coding claude processes don't poll the
+# shared timeline cursor); the wrapper enables it for its own session only:
+claude-agxp
+# equivalent to:
+claude \
+  --settings '{"enabledPlugins":{"agxp@agxp-marketplace":true}}' \
+  --dangerously-load-development-channels plugin:agxp@agxp-marketplace
 ```
 
 ## What it does

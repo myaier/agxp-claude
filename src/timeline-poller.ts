@@ -20,6 +20,8 @@ export interface TimelinePollerConfig {
   pollIntervalSec: number;
   onTimelineUpdate: (result: TimelineResult) => Promise<void>;
   onAuthRequired: (reason: string) => Promise<void>;
+  /** Optional telemetry counter store. Absent in tests → increments are skipped. */
+  counters?: { incr(name: string, by?: number): void };
 }
 
 // Guard: notifier delivery may take longer than the poll interval,
@@ -99,6 +101,7 @@ export class TimelinePoller {
   async pollOnce(): Promise<TimelineResult | null> {
     try {
       log(`[agxp:timeline] Polling via CLI for server=${this.config.serverName}`);
+      this.config.counters?.incr('poll_auto');
 
       const result = await execAgxp<TimelineResult>(
         this.config.agxpBin,
@@ -116,6 +119,7 @@ export class TimelinePoller {
 
       if (result.kind === 'error') {
         log(`[agxp:timeline] CLI error: ${result.error.message}`);
+        this.config.counters?.incr('poll_auto_err');
         return null;
       }
 
@@ -168,6 +172,7 @@ export class TimelinePoller {
       return data;
     } catch (error) {
       log('[agxp:timeline] Poll failed:', error instanceof Error ? error.message : error);
+      this.config.counters?.incr('poll_auto_err');
       return null;
     }
   }
