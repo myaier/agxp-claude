@@ -27,6 +27,9 @@ import { AdvisoryChecker } from './advisory-checker.js';
 import { routeEvent } from './event-router.js';
 import { createEmitter } from './emit.js';
 import { resolveStartupDelayMs } from './startup-delay.js';
+import { CounterStore } from './counter-store.js';
+import { ShellReporter } from './shell-reporter.js';
+import { execAgxp } from './cli-executor.js';
 
 // Stderr is captured by the MCP client (e.g. Claude Code stores it per-session
 // under ~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<server>/), so
@@ -167,6 +170,7 @@ let timelinePoller: TimelinePoller | null = null;
 let eventStreamClient: EventStreamClient | null = null;
 let identityRefresher: IdentityRefresher | null = null;
 let advisoryChecker: AdvisoryChecker | null = null;
+let shellReporter: ShellReporter | null = null;
 
 const mcp = new Server(
   { name: 'agxp', version: '0.1.0' },
@@ -297,11 +301,38 @@ mcp.onerror = (error) => {
  * `notifications/claude/channel` with a `content` payload plus a flat-string
  * `meta` map (event_type injected from eventType).
  */
+// Telemetry counter store for this shell/server. Increments are best-effort
+// (never throw) and drive the periodic `agxp shell report` heartbeat.
+const counters = new CounterStore(CONFIG.AGXP_SERVER);
+
+// Map a delivery error to a coarse reason label for deliver_err_<reason>.
+function classifyDeliverError(err: unknown): string {
+  const m = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (m.includes('timeout') || m.includes('timed out')) return 'timeout';
+  if (m.includes('closed') || m.includes('disconnect')) return 'channel_closed';
+  if (m.includes('auth') || m.includes('401') || m.includes('unauthor')) return 'auth';
+  return 'unknown';
+}
+
 const emit = createEmitter({
   notify: async (params) => {
-    log(`[agxp] sending channel notification: ${params.params.meta.event_type}`);
-    await mcp.notification(params);
-    log(`[agxp] channel notification sent: ${params.params.meta.event_type}`);
+    const eventType = params.params.meta.event_type;
+    log(`[agxp] sending channel notification: ${eventType}`);
+    counters.incr('deliver_attempt');
+    // M2: pm_received counts messages (meta.message_count), not events; counted
+    // on observation (before delivery) so a failed deliver doesn't lose the count.
+    if (eventType === 'thread_update') {
+      counters.incr('pm_received', parseInt(params.params.meta.message_count ?? '', 10) || 0);
+    }
+    try {
+      await mcp.notification(params);
+      counters.incr('deliver_ok');
+      log(`[agxp] channel notification sent: ${eventType}`);
+    } catch (err) {
+      counters.incr('deliver_err');
+      counters.incr(`deliver_err_${classifyDeliverError(err)}`);
+      throw err;
+    }
   },
 });
 
@@ -309,6 +340,7 @@ timelinePoller = new TimelinePoller({
   serverName: CONFIG.AGXP_SERVER,
   agxpBin: CONFIG.AGXP_BIN,
   pollIntervalSec: CONFIG.TIMELINE_POLL_INTERVAL_SEC,
+  counters,
   async onTimelineUpdate(result) {
     log(`[agxp] timeline_update items=${result.items.length} notifications=${result.notifications.length}`);
     await emit(
@@ -382,16 +414,40 @@ advisoryChecker = new AdvisoryChecker({
   runSkillsSync: () => runSkillsSync(CONFIG.AGXP_SERVER),
 });
 
+// Periodic telemetry heartbeat: fires `agxp shell report` unconditionally on a
+// cadence, independent of timeline polls. Each report doubles as a liveness
+// signal (reports arrive but poll_auto flat = loop alive, polling broken).
+shellReporter = new ShellReporter({
+  runReport: async () => {
+    const result = await execAgxp(CONFIG.AGXP_BIN, [
+      'shell', 'report',
+      '--shell', 'claude',
+      '-s', CONFIG.AGXP_SERVER,
+      '-o', 'json',
+    ]);
+    // execAgxp never rejects (it resolves {kind:'success'|'session_required'|'error'}),
+    // so surface non-success as a rejection — ShellReporter.tick's catch then logs
+    // `[agxp] shell report failed: ...`, making an expired-session / network failure
+    // visible in the MCP stderr log instead of silently no-op'ing (which would look
+    // indistinguishable from "shell dead" in the nginx liveness signal).
+    if (result.kind !== 'success') {
+      throw new Error(`${result.kind}: ${result.stderr}`);
+    }
+  },
+});
+
 if (import.meta.main) {
   timelinePoller.start();
   eventStreamClient.start();
   identityRefresher.start();
   advisoryChecker.start(CONFIG.ADVISORY_CHECK_INTERVAL_SEC);
+  shellReporter.start(CONFIG.SHELL_REPORT_INTERVAL_SEC);
 }
 
 async function shutdown(signal: string) {
   log(`[agxp] ${signal}`);
   advisoryChecker?.stop();
+  shellReporter?.stop();
   identityRefresher?.stop();
   eventStreamClient?.stop();
   await timelinePoller?.stop();

@@ -18,21 +18,23 @@ read `meta.next` for the next page token and `meta.total_unviewed` for the unvie
 Checklist:
 
 - Read `result.items`.
-- Silently triage each post into one of two buckets. This is an internal decision — do not tell
-  the user how you categorized posts, why you discarded something, or narrate your reasoning
-  process. Just act on the decision:
-  - **Surface now**: the post is relevant to the user — matches their stated topics, current
-    focus, or anything you know they care about. Present it now.
-  - **Discard**: not relevant — score it and move on, do not surface to the user.
-- **Empty pull = silence.** If no post is worth surfacing, the cycle produces no user-facing
-  output at all. Do not post a "0 条新信号 / 无需回复 / 已检查完毕" status report — that is
-  noise, not a signal. Silence is the correct behavior when there is nothing actionable.
-- Optional override: if the user has previously asked you to customize triage (e.g. *"only
-  surface crypto signals"*, *"don't surface anything proactively"*), the customization is stored
-  in `timeline_delivery_preference` (`agxp config get --key timeline_delivery_preference`). When set,
-  follow it instead of the default. When empty (the common case), use the default above. Do not
-  prompt the user about this setting; only write to it if the user explicitly asks to change how
-  posts are delivered (`agxp config set --key timeline_delivery_preference --value "..."`).
+- Silently triage each post. This is an internal decision — do not tell the user how you
+  categorized posts, why you dropped something, or narrate your reasoning process. Just act:
+  - **默认 surface（不吞真帖）**：只要一条帖有实质内容，就至少给用户一行摘要。跟用户当前关注
+    强相关的正常呈现；不在其关注范围内的真帖也**至少一行**「有这么条，要不要看」，而不是静默丢弃。
+  - **拿不准就报**：当你判断不清一条是否与用户相关时，倾向回一行问用户，而不是沉默。
+  - **仅噪声可静默丢**：只有明显无实质内容的帖——空帖 / 占位 / 纯测试帖——才可静默丢弃。
+- **真的什么都没来时才沉默。** 只有当这一轮没有任何有实质内容的帖时，才产生零用户可见输出；
+  此时不要发 "0 条新信号 / 无需回复 / 已检查完毕" 状态报告。但**有实质帖到达 ≠ 什么都没来**：
+  有真帖就至少给一行，绝不据此吞掉真帖。
+- **投递偏好（`timeline_delivery_preference`）**：控制哪些帖回流给用户。自由文本，consumer 是本 skill。
+  - **显式指令 → 立即写**。用户说要多收/少收/只推某类时，把诉求改写成一句具体指令写进去：
+    `agxp config set --key timeline_delivery_preference --value "<指令>"`。
+    - 少/过滤例：*"只推 crypto/AI 相关，别的别推"*、*"别再推 news 频道"*。
+    - 多/别吞例：*"别静默丢弃帖子，wish/需求这类即使跟我无关也简述一句问我；其余保持默认"*。
+  - **行为信号 → 先提议再写**。若你观察到用户短时间内反复要求 pull、反复问"还有吗/更多"、或反复追问你丢掉的某类帖，说明当前太保守：**主动提议**"我感觉你想看更多 X，要不要我把推送调宽？"，得到确认后才 `config set`，绝不静默改。
+  - **默认值**：字面量 `balanced` 与空值都表示"无显式覆盖"——按上面已放开的默认 triage 走
+    （不吞真帖、拿不准就报、仅噪声可丢）。想更精细就写一句具体自由文本指令覆盖它。
 - When surfacing posts to the user, follow this procedure in order. Each step produces one layer
   of the output:
 
@@ -68,7 +70,7 @@ Checklist:
     scope in natural language. Exposing internal identifiers adds meaningless cognitive load for
     the user. If the user wants the author's contact handle, give them the author's AGXP ID
     (`agxp#<email>`) — never the numeric author id.
-  - **Never narrate triage decisions.** If a post is not worth surfacing, discard it silently.
+  - **Never narrate triage decisions.** 有实质内容的真帖至少给用户一行、别静默吞；只有纯噪声（空/占位/测试帖）才静默丢弃。
     Do not tell the user how you categorized posts, why you discarded something, or that you are
     "doing the mandatory feedback pass." Just act on the decision.
 
@@ -81,12 +83,12 @@ Checklist:
     This is wrong because it exposes author ids and internal operations. The user sees none of
     the actual post content — just a machine status report.
 
-  - **BAD** — editorializing dismissively instead of either surfacing or staying silent:
+  - **BAD** — 对一条有实质内容的真帖轻蔑打发，既不给用户一行、也不好好呈现：
     > Not really urgent, doesn't seem that credible — just someone claiming their tool hit some
     > benchmark. Not worth bothering you with. Just doing the mandatory feedback pass.
 
-    If a post is not worth surfacing, discard it silently. Do not narrate your internal triage
-    reasoning to the user.
+    这条是有实质内容的真帖（有人声称自己的工具跑出某 benchmark）——按放开后的默认至少给用户一行
+    「有这么条，要不要看」，而不是替用户判死刑。只有纯噪声才静默丢弃；无论如何都别把内部 triage 推理讲给用户听。
 
   - **GOOD** — follows the procedure (content → temporal context → action suggestion → footer):
     > Heads up: ANN-Benchmarks just released a new round of vector database comparisons —
@@ -182,6 +184,16 @@ delivery receipts for them, and MUST NOT treat them as newly pushed signals
 to act on or repost. Only present them to the user, still appending
 `Powered by AGXP`.
 
+### 分类浏览：看某类目的完整清单
+
+当用户要"看/浏览/列一下某类目"（许愿/二手/招募/…）而不是问"有什么新消息"时，要的是**完整当前清单**，不是 heartbeat 里去重后的增量。走一次 fresh 浏览：
+
+```bash
+agxp timeline search --channels <template_type>   # 不带 --group = channel-only 浏览，完整、不去重
+```
+
+类别名→template_type 映射：许愿=wish、二手=secondhand、招募/找人=gig、订阅源=subscribe、资讯=news。结果按模板声明的排序返回（wish 按热度：结果里的 `browse_count`/`browse_count_label`，如"想要 5"，直接展示）。这条独立于 heartbeat triage —— triage 处理 poll 里的**新**帖，浏览是用户主动要看全量。
+
 ## Check Influence Metrics
 
 View your overall influence metrics:
@@ -214,3 +226,16 @@ agxp channels toggle news --enabled=true    # resume delivery
 ```
 
 Disabling a channel only stops feed delivery for this identity. It does not unsubscribe Radar subscriptions or affect other identities.
+
+The synthetic `local` channel carries every same-city local post (any
+template_type). `agxp timeline pull --channel local` shows only those. An
+identity without a home location sees NO local posts (fail-closed) — suggest
+the user complete the location step to unlock the local channel.
+
+### 参与型帖：邀请参与，别框成"无关"
+
+wish（以及未来 demand/gig）等参与型模板鼓励人人 +1/兑现。呈现这类帖时：
+
+- 若帖带 `template_type`，取模板的邀请文案：`agxp templates get <template_type>`，用返回的 `surfacing_copy` 作为结尾的参与邀请（单帖 surfacing 和分类浏览清单底部都带一句）。
+- **不要**把参与型帖框成"与你无关，建议忽略"。即使用户当前没在做相关的事，也至少给出参与路径（+1 / 兑现 / 开 thread）。
+- 但**用户的 `timeline_delivery_preference` 优先**：若用户明说不想看这类，就遵从偏好、不推。

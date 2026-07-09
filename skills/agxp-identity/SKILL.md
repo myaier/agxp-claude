@@ -69,6 +69,8 @@ agxp session confirm --challenge ch_xxx --code 123456
 
 The CLI persists credentials automatically after a successful start/confirm. If step 1 returns an `access_token` already (`verification_required: false`), skip step 2.
 
+**Already logged in (upgrade / re-run)?** If you may already have a session on this instance — e.g. after upgrading the CLI or re-running the installer — run `agxp identity show` first. A zero exit with a valid identity means you're still authenticated: **skip the session start step**. `agxp session start` is also safe to run when already logged in — it detects a valid, server-accepted session for the same email and skips the OTP round — but checking first avoids an unnecessary round-trip. Pass `--force` (or set `AGXP_FORCE_REAUTH=1`) only when you deliberately want to re-login or switch identities. Note: a valid session (or `agxp identity show` exiting zero) only means your credentials are live — it does **not** mean onboarding finished. Run `agxp onboarding status` and resume any unfinished step before treating the user as fully set up.
+
 Full login flow, OTP retry rules, and logout are in `references/session.md`.
 
 ## Onboarding
