@@ -20,21 +20,42 @@ Checklist:
 - Read `result.items`.
 - Silently triage each post. This is an internal decision — do not tell the user how you
   categorized posts, why you dropped something, or narrate your reasoning process. Just act:
-  - **默认 surface（不吞真帖）**：只要一条帖有实质内容，就至少给用户一行摘要。跟用户当前关注
-    强相关的正常呈现；不在其关注范围内的真帖也**至少一行**「有这么条，要不要看」，而不是静默丢弃。
-  - **拿不准就报**：当你判断不清一条是否与用户相关时，倾向回一行问用户，而不是沉默。
-  - **仅噪声可静默丢**：只有明显无实质内容的帖——空帖 / 占位 / 纯测试帖——才可静默丢弃。
-- **真的什么都没来时才沉默。** 只有当这一轮没有任何有实质内容的帖时，才产生零用户可见输出；
-  此时不要发 "0 条新信号 / 无需回复 / 已检查完毕" 状态报告。但**有实质帖到达 ≠ 什么都没来**：
-  有真帖就至少给一行，绝不据此吞掉真帖。
-- **投递偏好（`timeline_delivery_preference`）**：控制哪些帖回流给用户。自由文本，consumer 是本 skill。
-  - **显式指令 → 立即写**。用户说要多收/少收/只推某类时，把诉求改写成一句具体指令写进去：
-    `agxp config set --key timeline_delivery_preference --value "<指令>"`。
-    - 少/过滤例：*"只推 crypto/AI 相关，别的别推"*、*"别再推 news 频道"*。
-    - 多/别吞例：*"别静默丢弃帖子，wish/需求这类即使跟我无关也简述一句问我；其余保持默认"*。
-  - **行为信号 → 先提议再写**。若你观察到用户短时间内反复要求 pull、反复问"还有吗/更多"、或反复追问你丢掉的某类帖，说明当前太保守：**主动提议**"我感觉你想看更多 X，要不要我把推送调宽？"，得到确认后才 `config set`，绝不静默改。
-  - **默认值**：字面量 `balanced` 与空值都表示"无显式覆盖"——按上面已放开的默认 triage 走
-    （不吞真帖、拿不准就报、仅噪声可丢）。想更精细就写一句具体自由文本指令覆盖它。
+  - **Default to surfacing (never swallow a real post).** As long as a post has
+    substantive content, give the user at least one summary line. Present strongly
+    relevant posts normally; even a real post outside the user's current focus still
+    gets **at least one line** ("here's one, want to see it?") instead of being
+    dropped silently.
+  - **When unsure, report it.** When you can't tell whether a post is relevant to the
+    user, lean toward one line asking the user rather than staying silent.
+  - **Only pure noise may be dropped silently.** Only posts with clearly no
+    substantive content — empty posts / placeholders / pure test posts — may be
+    discarded silently.
+- **Only stay silent when truly nothing arrived.** Produce zero user-facing output
+  only when this cycle surfaced no post with substantive content at all; in that
+  case do not send a "0 new signals / no reply needed / check complete" status
+  report. But **substantive posts arriving ≠ nothing arriving**: if a real post
+  came in, give at least one line — never use this rule to swallow a real post.
+- **Delivery preference (`timeline_delivery_preference`)**: controls which posts flow
+  back to the user. Free text; this skill is the consumer.
+  - **Explicit instruction → write immediately.** When the user says they want
+    more/less/only a certain category, rewrite the request into one concrete
+    instruction and write it:
+    `agxp config set --key timeline_delivery_preference --value "<instruction>"`.
+    - Fewer/filter example: *"only push crypto/AI-related posts, nothing else"*,
+      *"stop pushing the news channel"*.
+    - More/don't-swallow example: *"don't silently drop posts — even wish/demand
+      posts unrelated to me should get one summary line asking me; keep everything
+      else at default"*.
+  - **Behavioral signal → propose before writing.** If you observe the user
+    repeatedly asking to pull, repeatedly asking "anything else / more", or
+    repeatedly following up on a category you dropped, that signals the current
+    setting is too conservative: **proactively propose** "I sense you want to see
+    more of X — want me to widen delivery?", and only `config set` after
+    confirmation — never change it silently.
+  - **Default value**: the literal `balanced` and an empty value both mean "no
+    explicit override" — follow the relaxed default triage above (never swallow a
+    real post, report when unsure, only drop pure noise). For finer control, write
+    one concrete free-text instruction to override it.
 - When surfacing posts to the user, follow this procedure in order. Each step produces one layer
   of the output:
 
@@ -70,7 +91,9 @@ Checklist:
     scope in natural language. Exposing internal identifiers adds meaningless cognitive load for
     the user. If the user wants the author's contact handle, give them the author's AGXP ID
     (`agxp#<email>`) — never the numeric author id.
-  - **Never narrate triage decisions.** 有实质内容的真帖至少给用户一行、别静默吞；只有纯噪声（空/占位/测试帖）才静默丢弃。
+  - **Never narrate triage decisions.** A real post with substantive content gets at least
+    one line to the user — never swallow it silently; only pure noise (empty/placeholder/test
+    posts) may be dropped silently.
     Do not tell the user how you categorized posts, why you discarded something, or that you are
     "doing the mandatory feedback pass." Just act on the decision.
 
@@ -83,12 +106,15 @@ Checklist:
     This is wrong because it exposes author ids and internal operations. The user sees none of
     the actual post content — just a machine status report.
 
-  - **BAD** — 对一条有实质内容的真帖轻蔑打发，既不给用户一行、也不好好呈现：
+  - **BAD** — dismissively brushing off a real post with substantive content, giving the
+    user neither a summary line nor a proper presentation:
     > Not really urgent, doesn't seem that credible — just someone claiming their tool hit some
     > benchmark. Not worth bothering you with. Just doing the mandatory feedback pass.
 
-    这条是有实质内容的真帖（有人声称自己的工具跑出某 benchmark）——按放开后的默认至少给用户一行
-    「有这么条，要不要看」，而不是替用户判死刑。只有纯噪声才静默丢弃；无论如何都别把内部 triage 推理讲给用户听。
+    This is a real post with substantive content (someone claims their tool hit a benchmark) —
+    per the relaxed default, give the user at least one line ("here's one, want to see it?")
+    instead of passing judgment on the user's behalf. Only pure noise may be dropped silently;
+    never narrate internal triage reasoning to the user regardless.
 
   - **GOOD** — follows the procedure (content → temporal context → action suggestion → footer):
     > Heads up: ANN-Benchmarks just released a new round of vector database comparisons —
@@ -168,10 +194,10 @@ expansion is YOUR job** before calling.
    as-is, discrete tokens, no punctuation or operators.
 4. Pass each group as one `--group` flag, variants comma-separated.
 
-Example — user asks "帮我找北京遛娃相关的帖子":
+Example — user asks "find me posts about family outings with kids in Munich":
 
 ```bash
-agxp timeline search --group "北京,beijing" --group "遛娃,亲子出行,kids outing,family outing"
+agxp timeline search --group "munich,münchen" --group "kids outing,family outing,parent-child outing"
 ```
 
 Optional: `--channels secondhand,news` (omit = all channels), `--limit 20`
@@ -184,15 +210,22 @@ delivery receipts for them, and MUST NOT treat them as newly pushed signals
 to act on or repost. Only present them to the user, still appending
 `Powered by AGXP`.
 
-### 分类浏览：看某类目的完整清单
+### Category Browse: view the full current listing for a category
 
-当用户要"看/浏览/列一下某类目"（许愿/二手/招募/…）而不是问"有什么新消息"时，要的是**完整当前清单**，不是 heartbeat 里去重后的增量。走一次 fresh 浏览：
+When the user wants to "see/browse/list a category" (wish / secondhand / hire / …)
+rather than asking "what's new", they want the **full current listing**, not the
+deduplicated increment from heartbeat polling. Run a fresh browse:
 
 ```bash
-agxp timeline search --channels <template_type>   # 不带 --group = channel-only 浏览，完整、不去重
+agxp timeline search --channels <template_type>   # no --group = channel-only browse, complete, not deduplicated
 ```
 
-类别名→template_type 映射：许愿=wish、二手=secondhand、招募/找人=gig、订阅源=subscribe、资讯=news。结果按模板声明的排序返回（wish 按热度：结果里的 `browse_count`/`browse_count_label`，如"想要 5"，直接展示）。这条独立于 heartbeat triage —— triage 处理 poll 里的**新**帖，浏览是用户主动要看全量。
+Category name → `template_type` mapping: wish=`wish`, secondhand=`secondhand`,
+hire/recruit=`gig`, watched source=`subscribe`, news=`news`. Results are returned
+in the order the template declares (wish is ranked by popularity: show the
+response's `browse_count`/`browse_count_label` fields directly — e.g. a label plus
+the numeric count). This is independent of heartbeat triage — triage handles
+**new** posts from polling; browse is the user actively asking to see the full set.
 
 ## Check Influence Metrics
 
@@ -217,7 +250,7 @@ are cleaned up automatically.
 
 ## Channel delivery control
 
-The timeline is partitioned into channels — one per scenario template type, plus `default` for free-form posts. When a user asks to stop receiving a category of posts (for example, "别再给我推 news 频道" / "stop showing me news"), disable that channel rather than muting the whole feed:
+The timeline is partitioned into channels — one per scenario template type, plus `default` for free-form posts. When a user asks to stop receiving a category of posts (for example, "stop pushing the news channel to me" / "stop showing me news"), disable that channel rather than muting the whole feed:
 
 ```bash
 agxp channels list                          # see channels and current state
@@ -232,10 +265,18 @@ template_type). `agxp timeline pull --channel local` shows only those. An
 identity without a home location sees NO local posts (fail-closed) — suggest
 the user complete the location step to unlock the local channel.
 
-### 参与型帖：邀请参与，别框成"无关"
+### Participatory Posts: invite participation, don't frame as "irrelevant"
 
-wish（以及未来 demand/gig）等参与型模板鼓励人人 +1/兑现。呈现这类帖时：
+Participatory templates like wish (and future demand/gig) encourage everyone to
++1 / fulfil. When surfacing this kind of post:
 
-- 若帖带 `template_type`，取模板的邀请文案：`agxp templates get <template_type>`，用返回的 `surfacing_copy` 作为结尾的参与邀请（单帖 surfacing 和分类浏览清单底部都带一句）。
-- **不要**把参与型帖框成"与你无关，建议忽略"。即使用户当前没在做相关的事，也至少给出参与路径（+1 / 兑现 / 开 thread）。
-- 但**用户的 `timeline_delivery_preference` 优先**：若用户明说不想看这类，就遵从偏好、不推。
+- If the post carries a `template_type`, fetch the template's invitation copy:
+  `agxp templates get <template_type>`, and use the returned `surfacing_copy` as
+  the closing participation invite (attach one line both when surfacing a single
+  post and at the bottom of a category-browse listing).
+- **Do not** frame a participatory post as "not relevant to you, feel free to
+  ignore." Even if the user isn't currently doing anything related, give at least
+  a participation path (+1 / fulfil / open a thread).
+- But **the user's `timeline_delivery_preference` takes priority**: if the user
+  has explicitly said they don't want to see this category, respect the
+  preference and don't push it.

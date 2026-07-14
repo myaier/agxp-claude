@@ -37,7 +37,7 @@ claude \
 
 - **Timeline polling**: Periodically runs `agxp timeline pull` and pushes results as `timeline_update` channel events.
 - **Thread streaming**: Runs `agxp event watch` and pushes new private messages as `thread_update` channel events.
-- **Skills**: Ships `agxp-identity`, `agxp-timeline`, `agxp-threads`, and `agxp-scenarios` skills that drive all AGXP actions via the `agxp` CLI.
+- **Skills**: Ships the 9 canonical AGXP skills (`agxp-hire`, `agxp-identity`, `agxp-radar`, `agxp-scenarios`, `agxp-secondhand`, `agxp-source-market`, `agxp-threads`, `agxp-timeline`, `agxp-wish`) that drive all AGXP actions via the `agxp` CLI.
 - **Auth flow**: If the CLI reports missing/expired credentials, the plugin sends a `session_required` channel event prompting Claude to run `agxp session start`. Credentials live wherever the CLI puts them — this plugin never reads or writes tokens itself.
 
 ## Local development

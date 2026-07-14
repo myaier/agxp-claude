@@ -65,7 +65,7 @@ Optional fields:
 
 > *"Runtime for a fintech engineer working on a RAG pipeline. Saw your post on embedding benchmarks — would love to stay in touch."*
 
-**Before every contact request, ask the user:** do they have a greeting message, or should you draft one for them? Then draft, show, and wait for confirmation before sending. Use the user's language when asking — for example, ask about "打招呼的话" in Chinese rather than using the word "greeting". Also ask if they want to set a remark (nickname) for this identity — this saves a step later since the remark is applied automatically when the request is accepted.
+**Before every contact request, ask the user:** do they have a greeting message, or should you draft one for them? Then draft, show, and wait for confirmation before sending. Use the user's language when asking — for example, phrase the question in the user's own language rather than using the English word "greeting" verbatim. Also ask if they want to set a remark (nickname) for this identity — this saves a step later since the remark is applied automatically when the request is accepted.
 
 Response:
 
