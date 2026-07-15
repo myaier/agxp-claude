@@ -22,6 +22,12 @@ export interface TimelinePollerConfig {
   onAuthRequired: (reason: string) => Promise<void>;
   /** Optional telemetry counter store. Absent in tests → increments are skipped. */
   counters?: { incr(name: string, by?: number): void };
+  /** Optional local shell diagnostics. Best-effort; logging failures are ignored. */
+  shellLog?: {
+    debug(input: { server?: string; component: string; event: string; message: string; attrs?: Record<string, unknown> }): void;
+    info(input: { server?: string; component: string; event: string; message: string; attrs?: Record<string, unknown> }): void;
+    warn(input: { server?: string; component: string; event: string; message: string; attrs?: Record<string, unknown> }): void;
+  };
 }
 
 // Guard: notifier delivery may take longer than the poll interval,
@@ -40,6 +46,18 @@ export class TimelinePoller {
 
   constructor(config: TimelinePollerConfig) {
     this.config = config;
+  }
+
+  private shellLog(level: 'debug' | 'info' | 'warn', input: { event: string; message: string; attrs?: Record<string, unknown> }): void {
+    try {
+      this.config.shellLog?.[level]({
+        server: this.config.serverName,
+        component: 'timeline-poller',
+        ...input,
+      });
+    } catch {
+      // Local diagnostics must never alter polling behavior.
+    }
   }
 
   start(): void {
@@ -102,6 +120,10 @@ export class TimelinePoller {
     try {
       log(`[agxp:timeline] Polling via CLI for server=${this.config.serverName}`);
       this.config.counters?.incr('poll_auto');
+      this.shellLog('info', {
+        event: 'poll_attempt',
+        message: 'Claude timeline poll attempted.',
+      });
 
       const result = await execAgxp<TimelineResult>(
         this.config.agxpBin,
@@ -110,6 +132,10 @@ export class TimelinePoller {
 
       if (result.kind === 'session_required') {
         log('[agxp:timeline] Auth required');
+        this.shellLog('warn', {
+          event: 'poll_auth_required',
+          message: 'Claude timeline poll requires authentication.',
+        });
         if (!this.authPrompted) {
           this.authPrompted = true;
           await this.config.onAuthRequired('session_required');
@@ -120,6 +146,13 @@ export class TimelinePoller {
       if (result.kind === 'error') {
         log(`[agxp:timeline] CLI error: ${result.error.message}`);
         this.config.counters?.incr('poll_auto_err');
+        const attrs: Record<string, unknown> = { reason: 'cli_error' };
+        if (typeof result.exitCode === 'number') attrs.exit_code = result.exitCode;
+        this.shellLog('warn', {
+          event: 'poll_error',
+          message: 'Claude timeline poll failed.',
+          attrs,
+        });
         return null;
       }
 
@@ -134,6 +167,13 @@ export class TimelinePoller {
       log(
         `[agxp:timeline] Polled: ${items.length} items, ${notifications.length} notifications, has_more=${data.has_more}`
       );
+      this.shellLog('debug', {
+        event: items.length > 0 || notifications.length > 0 ? 'poll_ok' : 'poll_empty',
+        message: items.length > 0 || notifications.length > 0
+          ? 'Claude timeline poll returned updates.'
+          : 'Claude timeline poll returned no updates.',
+        attrs: { item_count: items.length, notification_count: notifications.length },
+      });
 
       if (items.length > 0 || notifications.length > 0) {
         // Check for stale delivery flag (delivery promise hung)
@@ -173,6 +213,11 @@ export class TimelinePoller {
     } catch (error) {
       log('[agxp:timeline] Poll failed:', error instanceof Error ? error.message : error);
       this.config.counters?.incr('poll_auto_err');
+      this.shellLog('warn', {
+        event: 'poll_error',
+        message: 'Claude timeline poll failed.',
+        attrs: { reason: 'exception' },
+      });
       return null;
     }
   }

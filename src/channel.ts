@@ -30,11 +30,14 @@ import { resolveStartupDelayMs } from './startup-delay.js';
 import { CounterStore } from './counter-store.js';
 import { ShellReporter } from './shell-reporter.js';
 import { execAgxp } from './cli-executor.js';
+import { ShellLog } from './shell-log.js';
+import type { EmitterDeps } from './emit.js';
 
 // Stderr is captured by the MCP client (e.g. Claude Code stores it per-session
-// under ~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<server>/), so
-// we just log there directly — no file logger of our own.
+// under ~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<server>/).
+// ShellLog is an additional best-effort structured local diagnostics stream.
 const log = console.error;
+const shellLog = new ShellLog({ shell: 'claude', fileBase: 'claude-shell' });
 
 // User-facing reply language rule — verbatim same string as
 // plugins/claude/src/identity-refresher.ts (and codex/openclaw mirrors). Kept
@@ -261,6 +264,12 @@ if (import.meta.main) {
   await mcp.connect(new StdioServerTransport());
 
   log(`[agxp] MCP server connected via stdio`);
+  safeShellLog(() => shellLog.info({
+    server: CONFIG.AGXP_SERVER,
+    component: 'channel',
+    event: 'startup',
+    message: 'Claude AGXP channel started.',
+  }));
 
   // Wait for Claude Code to finish registering its `claude/channel` notification
   // listener before firing the first poll. Without this the first notification
@@ -314,26 +323,92 @@ function classifyDeliverError(err: unknown): string {
   return 'unknown';
 }
 
-const emit = createEmitter({
-  notify: async (params) => {
+type ShellLogLike = Pick<ShellLog, 'debug' | 'info' | 'warn'>;
+
+function safeShellLog(
+  writer: () => void,
+): void {
+  try {
+    writer();
+  } catch {
+    // Shell telemetry must never alter channel behavior.
+  }
+}
+
+export function parseThreadMessageCount(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+  if (!/^(0|[1-9]\d*)$/.test(raw)) return 0;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : 0;
+}
+
+function threadMessageCount(params: { params: { meta: Record<string, string> } }): number {
+  return parseThreadMessageCount(params.params.meta.message_count);
+}
+
+export function createChannelNotify(deps: EmitterDeps & {
+  counters: { incr(name: string, by?: number): void };
+  shellLog: ShellLogLike;
+  serverName: string;
+}) {
+  return async function notifyWithTelemetry(params: Parameters<EmitterDeps['notify']>[0]): Promise<void> {
     const eventType = params.params.meta.event_type;
     log(`[agxp] sending channel notification: ${eventType}`);
-    counters.incr('deliver_attempt');
-    // M2: pm_received counts messages (meta.message_count), not events; counted
-    // on observation (before delivery) so a failed deliver doesn't lose the count.
+    deps.counters.incr('deliver_attempt');
+    safeShellLog(() => deps.shellLog.info({
+      server: deps.serverName,
+      component: 'channel',
+      event: 'delivery_attempt',
+      message: 'Claude channel delivery attempted.',
+      attrs: { event_type: eventType },
+    }));
+
     if (eventType === 'thread_update') {
-      counters.incr('pm_received', parseInt(params.params.meta.message_count ?? '', 10) || 0);
+      const messageCount = threadMessageCount(params);
+      deps.counters.incr('pm_received', messageCount);
+      safeShellLog(() => deps.shellLog.info({
+        server: deps.serverName,
+        component: 'channel',
+        event: 'pm_received',
+        message: 'Claude channel observed private messages.',
+        attrs: { message_count: messageCount },
+      }));
     }
+
     try {
-      await mcp.notification(params);
-      counters.incr('deliver_ok');
+      await deps.notify(params);
+      deps.counters.incr('deliver_ok');
+      safeShellLog(() => deps.shellLog.info({
+        server: deps.serverName,
+        component: 'channel',
+        event: 'delivery_ok',
+        message: 'Claude channel delivery succeeded.',
+        attrs: { event_type: eventType },
+      }));
       log(`[agxp] channel notification sent: ${eventType}`);
     } catch (err) {
-      counters.incr('deliver_err');
-      counters.incr(`deliver_err_${classifyDeliverError(err)}`);
+      const reason = classifyDeliverError(err);
+      deps.counters.incr('deliver_err');
+      deps.counters.incr(`deliver_err_${reason}`);
+      safeShellLog(() => deps.shellLog.warn({
+        server: deps.serverName,
+        component: 'channel',
+        event: 'delivery_error',
+        message: 'Claude channel delivery failed.',
+        attrs: { event_type: eventType, reason },
+      }));
       throw err;
     }
-  },
+  };
+}
+
+const emit = createEmitter({
+  notify: createChannelNotify({
+    notify: async (params) => { await mcp.notification(params); },
+    counters,
+    shellLog,
+    serverName: CONFIG.AGXP_SERVER,
+  }),
 });
 
 timelinePoller = new TimelinePoller({
@@ -341,6 +416,7 @@ timelinePoller = new TimelinePoller({
   agxpBin: CONFIG.AGXP_BIN,
   pollIntervalSec: CONFIG.TIMELINE_POLL_INTERVAL_SEC,
   counters,
+  shellLog,
   async onTimelineUpdate(result) {
     log(`[agxp] timeline_update items=${result.items.length} notifications=${result.notifications.length}`);
     await emit(
@@ -419,6 +495,12 @@ advisoryChecker = new AdvisoryChecker({
 // signal (reports arrive but poll_auto flat = loop alive, polling broken).
 shellReporter = new ShellReporter({
   runReport: async () => {
+    safeShellLog(() => shellLog.debug({
+      server: CONFIG.AGXP_SERVER,
+      component: 'channel',
+      event: 'shell_report_attempt',
+      message: 'Claude shell report attempted.',
+    }));
     const result = await execAgxp(CONFIG.AGXP_BIN, [
       'shell', 'report',
       '--shell', 'claude',
@@ -431,8 +513,21 @@ shellReporter = new ShellReporter({
     // visible in the MCP stderr log instead of silently no-op'ing (which would look
     // indistinguishable from "shell dead" in the nginx liveness signal).
     if (result.kind !== 'success') {
+      safeShellLog(() => shellLog.warn({
+        server: CONFIG.AGXP_SERVER,
+        component: 'channel',
+        event: 'shell_report_error',
+        message: 'Claude shell report failed.',
+        attrs: { reason: result.kind },
+      }));
       throw new Error(`${result.kind}: ${result.stderr}`);
     }
+    safeShellLog(() => shellLog.debug({
+      server: CONFIG.AGXP_SERVER,
+      component: 'channel',
+      event: 'shell_report_ok',
+      message: 'Claude shell report succeeded.',
+    }));
   },
 });
 

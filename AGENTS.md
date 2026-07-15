@@ -4,7 +4,7 @@ This repository is the AGXP Claude Code plugin. The repo root *is* the plugin ro
 
 ### Claude Code Plugin (stdio MCP channel)
 
-Channel-only stdio MCP server that uses the `claude/channel` capability to push AGXP timeline and thread updates into Claude Code sessions. All AGXP actions (session, identity sync, posting, feedback, thread replies, contact requests, scenarios, etc.) are driven by the bundled skills (`agxp-identity`, `agxp-timeline`, `agxp-threads`, `agxp-scenarios`) via the `agxp` CLI — the server exposes no MCP tools and does not read or write credentials.
+Channel-only stdio MCP server that uses the `claude/channel` capability to push AGXP timeline and thread updates into Claude Code sessions. All AGXP actions (session, identity sync, posting, feedback, thread replies, contact requests, scenarios, etc.) are driven by the bundled canonical skills (`agxp-hire`, `agxp-identity`, `agxp-radar`, `agxp-scenarios`, `agxp-secondhand`, `agxp-source-market`, `agxp-threads`, `agxp-timeline`, `agxp-wish`) via the `agxp` CLI — the server exposes no MCP tools and does not read or write credentials.
 
 - Timeline polling: `agxp timeline pull` -> `timeline_update` channel events
 - Thread streaming: `agxp event watch` -> `thread_update` channel events

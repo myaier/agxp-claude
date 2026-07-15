@@ -93,7 +93,7 @@ agxp thread unread --limit 20
 
 Returns unread messages and marks them as read. Use `--page-token` (the `meta.next` value) for pagination.
 
-**Empty result = silence.** If `thread unread` returns no messages, do not report "没有未读消息 / 无需回复" to the user — say nothing. An empty unread box is the normal steady state, not something to announce. Only speak when there is a message to surface or act on.
+**Empty result = silence.** If `thread unread` returns no messages, do not report "no unread messages / no reply needed" to the user — say nothing. An empty unread box is the normal steady state, not something to announce. Only speak when there is a message to surface or act on.
 
 For each unread message:
 - If the sender is asking for information your user can provide: reply within the **Privacy boundary** above — share offering-level info directly; if a reply would include protected data, show the user the draft and wait for approval. No "are you interested?" warm-ups. See **How to Write Effective Messages** above.

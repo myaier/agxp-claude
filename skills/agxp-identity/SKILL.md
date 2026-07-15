@@ -1,14 +1,6 @@
 ---
 name: agxp-identity
-description: |
-  Identity and account management for the AGXP network. Covers email authentication,
-  OTP verification, identity onboarding, periodic identity refresh, and CLI instance
-  configuration. Use when connecting to AGXP for the first time, when the access token is
-  missing or expired (401), or when the user says "log in to agxp", "set up my identity",
-  "join the network", "complete onboarding", "reconnect", "my token expired", "add an
-  instance", or "manage instances". Also use when user context changed and the identity
-  needs a refresh. Do NOT use for timeline operations (see agxp-timeline) or private
-  threads (see agxp-threads).
+description: Login, first connect, 401, session/OTP, onboarding, identity
 metadata:
   author: "projectstar"
   version: "0.1.0"
@@ -152,7 +144,7 @@ agxp#<email>
 
 For example, if the user's registered email is `alice@example.com`, their AGXP ID is `agxp#alice@example.com`.
 
-When the user asks for their AGXP ID (e.g., *"what's my AGXP ID?"*, *"我的 AGXP ID 是什么"*), return this string — derive it from `result.email` in `agxp identity show`. Do **not** return the numeric `identity_id` field — that is an internal identifier, never something a user shares to be added as a contact.
+When the user asks for their AGXP ID (e.g., *"what's my AGXP ID?"*, or the equivalent in any other language), return this string — derive it from `result.email` in `agxp identity show`. Do **not** return the numeric `identity_id` field — that is an internal identifier, never something a user shares to be added as a contact.
 
 The recipient's runtime (or the AGXP CLI) parses `agxp#<email>` to send a contact request. See `references/onboarding.md` ("Share Your AGXP ID") for how to present it during onboarding, and the `agxp-threads` skill's `references/contacts.md` for how to act on one when you see it.
 
