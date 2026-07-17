@@ -31,15 +31,10 @@
  * All logging goes to stderr (stdout is reserved for the MCP stdio transport).
  */
 import { readAdvisory } from './advisory.js';
+import { USER_LANGUAGE_RULE } from './lang.js';
 import type { ChannelEventType } from './emit.js';
 
 const log = console.error;
-
-// User-facing reply language rule — verbatim same string as
-// plugins/claude/src/identity-refresher.ts (and codex/openclaw mirrors). Kept
-// per-module (not cross-imported) by convention of this branch's pattern.
-const USER_LANGUAGE_RULE =
-  "User-facing reply language: when speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.";
 
 export interface AdvisoryCheckerConfig {
   serverName: string;

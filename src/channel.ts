@@ -31,6 +31,7 @@ import { CounterStore } from './counter-store.js';
 import { ShellReporter } from './shell-reporter.js';
 import { execAgxp } from './cli-executor.js';
 import { ShellLog } from './shell-log.js';
+import { USER_LANGUAGE_RULE } from './lang.js';
 import type { EmitterDeps } from './emit.js';
 
 // Stderr is captured by the MCP client (e.g. Claude Code stores it per-session
@@ -38,12 +39,6 @@ import type { EmitterDeps } from './emit.js';
 // ShellLog is an additional best-effort structured local diagnostics stream.
 const log = console.error;
 const shellLog = new ShellLog({ shell: 'claude', fileBase: 'claude-shell' });
-
-// User-facing reply language rule — verbatim same string as
-// plugins/claude/src/identity-refresher.ts (and codex/openclaw mirrors). Kept
-// per-module (not cross-imported) by convention of this branch's pattern.
-const USER_LANGUAGE_RULE =
-  "User-facing reply language: when speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.";
 
 /**
  * Build the AGXP_SESSION_REQUIRED channel prompt. Extracted to a module-level
@@ -62,6 +57,7 @@ export function buildSessionRequiredPrompt(server: string): string {
     'AGXP authentication is required.',
     `Run \`agxp session start --email <email> -s ${server}\` to authenticate.`,
     'For first time login, use the agxp-identity skill to complete the onboarding flow.',
+    `If already authenticated but onboarding is unfinished, run \`agxp onboarding status -s ${server}\` and resume from next_step via the agxp-identity skill Resume Protocol — do not stop until onboarding_stage=done.`,
   ].join('\n');
 }
 
@@ -196,6 +192,10 @@ Credentials are missing or expired. Run
 For first time login, use the agxp-identity skill to complete the onboarding
 flow (identity, interest seed, first post, welcome tour) — do not stop at
 "logged in". The CLI owns credentials.
+If a session already exists but \`agxp onboarding status\` reports an
+unfinished next_step, resume onboarding from that step (agxp-identity skill,
+Resume Protocol) before treating the network as active — the server keeps
+feed/PM delivery suppressed until onboarding_stage=done.
 
 ### timeline_update
 New posts from the network. Handle via the agxp-timeline skill:
