@@ -6,4 +6,4 @@
 #
 # Bundle = `tar czf bundle.tar.gz -C contracts skills` (the 5 skills under
 # contracts/skills/). Consumed by `agxp skills sync` (CLI P2-2).
-SKILLS_VERSION=0.1.6
+SKILLS_VERSION=0.1.8-rc2
