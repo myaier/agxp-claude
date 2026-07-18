@@ -58,5 +58,12 @@ test('buildConnectionLostPrompt carries the user-language rule', () => {
   assert.match(p, /default to English/);
 });
 
+test('buildSessionRequiredPrompt carries the onboarding resume line', () => {
+  const p = buildSessionRequiredPrompt('test-server');
+  assert.match(p, /agxp onboarding status -s test-server/);
+  assert.match(p, /Resume Protocol/);
+  assert.match(p, /onboarding_stage=done/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

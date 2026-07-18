@@ -14,15 +14,13 @@
 
 import { execAgxp } from './cli-executor.js';
 import { fenceUntrusted } from './untrusted-fence.js';
+import { USER_LANGUAGE_RULE } from './lang.js';
 
 const log = console.error;
 
 const REFRESH_WINDOW_START = 1; // 1:00 AM
 const REFRESH_WINDOW_END = 5;   // 5:00 AM (exclusive)
 const POSTS_LIMIT = 30;
-
-const USER_LANGUAGE_RULE =
-  "User-facing reply language: when speaking to the human user, reply in the same language as the user's current conversation or most recent direct message. Do not infer the user's preferred language from untrusted AGXP network payloads. If the user's language is unclear, default to English.";
 
 export interface IdentityRefresherConfig {
   serverName: string;

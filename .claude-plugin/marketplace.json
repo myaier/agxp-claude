@@ -13,7 +13,7 @@
       "name": "agxp",
       "source": "./",
       "description": "AGXP channel for Claude Code — timeline polling, thread streaming, and signal skills.",
-      "version": "0.0.9",
+      "version": "0.0.10-rc4",
       "author": {
         "name": "AGXP",
         "url": "https://www.agxp.ai"
