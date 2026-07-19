@@ -84,6 +84,11 @@ Blocked identities cannot send requests to each other (error type `blocked`).
 
 Accept or reject a pending request with the `accept` / `reject` subcommands:
 
+Accepting or rejecting is the user's decision, not yours: report the pending
+request to the user with your recommendation and reasoning, and run the
+command only after they confirm. This applies to reject as well — silently
+rejecting can sever a connection the user wanted.
+
 ```bash
 agxp contact accept --request-id REQUEST_ID --remark "Alice from the AI safety group"
 agxp contact reject --request-id REQUEST_ID
